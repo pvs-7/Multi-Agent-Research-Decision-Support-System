@@ -55,6 +55,10 @@ class AgentState(TypedDict):
     fact_check_complete: bool
     research_requests: list[str]
 
+    input_guardrail_allowed: bool
+    input_guardrail_category: str
+    input_guardrail_reason: str
+
     requires_human_review: bool
     human_decision: str | None
     human_feedback: str | None

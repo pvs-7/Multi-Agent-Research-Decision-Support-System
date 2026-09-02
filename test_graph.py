@@ -15,7 +15,7 @@ async def main():
     initial_state = {
         "messages": [],
         "user_query": """
-Should a country transition to electric vehicles by 2035?
+        What are the risks of investing in NVIDIA??
 """,
 
         "research_findings": [],
@@ -38,6 +38,10 @@ Should a country transition to electric vehicles by 2035?
 
         "fact_check_complete": False,
         "research_requests": [],
+
+        "input_guardrail_allowed": False,
+        "input_guardrail_category": "str",
+        "input_guardrail_reason": "",
 
         "requires_human_review": False,
         "human_decision": None,
