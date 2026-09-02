@@ -1,295 +1,387 @@
 import json
-
 from pydantic import BaseModel
-from app.graph.state import Finding
-from app.mcp.client import client
-from app.graph.state import AgentState
-from app.core.llm import llm
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from app.graph.state import Finding, AgentState
+from app.mcp.client import client
+from app.core.llm import llm
 
-MAX_SOURCES = 10
-MAX_TOOL_CALLS = 4
-MAX_TOOL_ROUNDS = 2
+MAX_TOOL_CALLS_PER_PASS = 4
+MAX_RESULTS_PER_SEARCH = 3
+MAX_PLANNING_SOURCES = 5
+MAX_CONTEXT_SOURCES = 8
 
 
 class ResearchOutput(BaseModel):
     findings: list[Finding]
+    research_complete: bool
+    missing_information: list[str]
+
 
 research_prompt = """
 You are the Research Agent in a multi-agent research system.
 
-Research the user's question using tavily_search.
+Your job is to gather reliable evidence needed to answer the user's question.
 
-You have a strict research budget.
+You have access to tavily_search and may be called multiple times.
 
-Rules:
+FIRST RESEARCH PASS:
+- Identify the major dimensions of the question.
+- Perform a broad search.
+- Perform targeted searches for important dimensions.
+- Build a reliable evidence base.
+
+FOLLOW-UP RESEARCH PASS:
+- Inspect existing findings, risks, missing information, and previous searches.
+- Identify weak, unsupported, or missing evidence.
+- Search ONLY for those gaps.
+- Do NOT repeat previous searches.
+- Prioritize gaps identified by previous agents.
+
+SEARCH STRATEGY:
+- Cover all important dimensions of the question.
+- Prefer authoritative and primary sources.
+- Use different searches for different evidence gaps.
+
+RULES:
 - Use tavily_search only.
-- You have a maximum of 4 searches.
-- Usually 2-3 targeted searches are sufficient.
-- Do not search again if the existing sources adequately answer
-  the question.
-- Do not use the same search query repeatedly.
-- Prefer academic, government, institutional, and reputable
-  industry sources.
-- Prefer primary sources over secondary sources.
+- Maximum 4 searches per invocation.
+- Do not repeat previous queries.
+- Do not perform unnecessary searches.
 - Do not invent information.
-- Only create findings supported by retrieved sources.
+- Only produce findings supported by sources.
 - Do not write the final report.
 
-Research strategy:
-1. Start with one broad search to establish the topic.
-2. Use subsequent searches only to fill important evidence gaps.
-3. Stop searching once you have sufficient evidence across the
-   major dimensions of the question.
+COMPLETION:
+Research is complete only when the evidence sufficiently covers the important
+dimensions of the question.
+
+If evidence is missing:
+research_complete = false
+missing_information = specific evidence gaps
+
+If evidence is sufficient:
+research_complete = true
+missing_information = []
+
+During follow-up research prioritize:
+1. missing_information
+2. weakly supported dimensions
+3. risks identified by the Risk Agent
+4. dimensions without evidence
 """
 
+
 def compress_tavily_result(result):
-
-    compressed = []
-
+    sources = []
     for item in result:
-
         if item.get("type") != "text":
             continue
-
         try:
             data = json.loads(item.get("text", "{}"))
         except json.JSONDecodeError:
             continue
-
-        for tavily_result in data.get("results", []):
-
-            compressed.append({
-                "title": tavily_result.get("title", ""),
-                "url": tavily_result.get("url", ""),
-                "content": tavily_result.get("content", "")[:500],
-                "score": tavily_result.get("score")
+        for r in data.get("results", []):
+            sources.append({
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "content": r.get("content", "")[:600],
+                "score": r.get("score", 0)
             })
+    return sources[:MAX_RESULTS_PER_SEARCH]
 
-    return compressed[:5]
+
+def add_sources(existing, new_sources):
+    existing_urls = {s.get("url") for s in existing}
+    for source in new_sources:
+        url = source.get("url")
+        if url and url not in existing_urls:
+            existing.append(source)
+            existing_urls.add(url)
+    return existing
+
+
+def select_sources(sources, limit):
+    if len(sources) <= limit:
+        return list(sources)
+    return sorted(
+        sources,
+        key=lambda s: s.get("score") or 0,
+        reverse=True
+    )[:limit]
+
+
+def merge_findings(existing, new):
+    merged = list(existing)
+    claims = {f.claim.strip().lower() for f in merged}
+
+    for finding in new:
+        claim = finding.claim.strip().lower()
+        if claim not in claims:
+            merged.append(finding)
+            claims.add(claim)
+
+    return merged
+
+def compact_findings(findings, limit=6):
+    return [
+        {
+            "claim": f.claim[:300],
+            "confidence": f.confidence
+        }
+        for f in findings[-limit:]
+    ]
+
 
 async def research_agent(state: AgentState):
-
+    workflow_steps = state.get("workflow_steps", 0) + 1
+    research_passes = state.get("research_passes", 0) + 1
     tool_call_count = 0
-    tool_round = 0
 
     print("\n" + "=" * 60)
     print("🔎 RESEARCH AGENT STARTED")
     print("=" * 60)
+    print(f"Research pass: {research_passes}")
+    print("Query:", state["user_query"])
 
-    print("Query:")
-    print(state["user_query"])
+    existing_findings = [
+        f.model_dump() for f in state.get("research_findings", [])
+    ]
+    existing_risks = [
+        r.model_dump() for r in state.get("risks", [])
+    ]
+    existing_sources = list(state.get("research_sources", []))
+    existing_queries = list(state.get("research_queries", []))
+    missing_information = list(state.get("missing_information", []))
 
-    # --------------------------------------------------
-    # Get MCP tools
-    # --------------------------------------------------
+    print(f"\n📚 Existing findings: {len(existing_findings)}")
+    print(f"⚠️ Existing risks: {len(existing_risks)}")
+    print(f"📄 Existing sources: {len(existing_sources)}")
+    print(f"🔎 Previous searches: {len(existing_queries)}")
+    print(f"❓ Missing information: {missing_information}")
 
     tools = await client.get_tools()
+    search_tool = next(t for t in tools if t.name == "tavily_search")
+    llm_with_tools = llm.bind_tools([search_tool])
 
-    print("\n🛠️ MCP TOOLS AVAILABLE:")
-    for tool in tools:
-        print(f"  - {tool.name}")
-    
-    search_tool = next(
-        tool
-        for tool in tools
-        if tool.name == "tavily_search"
-    )
+    research_context = list(existing_sources)
 
-    llm_with_tools = llm.bind_tools([
-        search_tool
-    ])
+    planning_context = {
+        "user_query": state["user_query"],
+        "research_pass": research_passes,
+        "existing_findings": compact_findings(
+        state.get("research_findings", []),
+        6
+    ),
+        "existing_risks": existing_risks,
+        "missing_information": missing_information,
+        "previous_search_queries": existing_queries,
+    }
 
     messages = [
         SystemMessage(content=research_prompt),
-        HumanMessage(
-            content=f"User Query: {state['user_query']}"
-        )
+        HumanMessage(content=json.dumps(planning_context))
     ]
 
-    research_context = []
-
-    # --------------------------------------------------
-    # First LLM call
-    # --------------------------------------------------
-
     print("\n📤 Asking research LLM what to do...")
-
     response = await llm_with_tools.ainvoke(messages)
-
     messages.append(response)
 
     print("\n📥 Research LLM response:")
+    print("Content:", response.content)
+    print("Tool calls:", response.tool_calls)
 
-    print("Content:")
-    print(response.content)
-
-    print("\nTool calls:")
-    print(response.tool_calls)
-
-    # --------------------------------------------------
-    # Tool calling loop
-    # --------------------------------------------------
-
-    while response.tool_calls:
-
-        if tool_round >= MAX_TOOL_ROUNDS:
-            print("🛑 Maximum tool rounds reached.")
-            break
-
-        if tool_call_count >= MAX_TOOL_CALLS:
-            print("🛑 Maximum tool calls reached.")
-            break
-
-        tool_round += 1
-
-        print(
-            f"\n🔄 TOOL ROUND "
-            f"{tool_round}/{MAX_TOOL_ROUNDS}"
-        )
-
+    while response.tool_calls and tool_call_count < MAX_TOOL_CALLS_PER_PASS:
         tool_results = []
 
         for tool_call in response.tool_calls:
-
-            if tool_call_count >= MAX_TOOL_CALLS:
-                print("🛑 Tool call budget exhausted.")
+            if tool_call_count >= MAX_TOOL_CALLS_PER_PASS:
                 break
 
             tool_call_count += 1
+            args = tool_call["args"]
 
             print(
                 f"\n🔧 TOOL CALL "
-                f"{tool_call_count}/{MAX_TOOL_CALLS}"
+                f"{tool_call_count}/{MAX_TOOL_CALLS_PER_PASS}"
             )
-
             print("Tool:", tool_call["name"])
-            print("Arguments:", tool_call["args"])
+            print("Arguments:", args)
 
-            # Since you only bind tavily_search,
-            # you can directly use search_tool.
+            query = args.get("query")
+            if query:
+                normalized = query.strip().lower()
+                previous = {q.strip().lower() for q in existing_queries}
+                if normalized not in previous:
+                    existing_queries.append(query)
+
             try:
                 print("\n🌐 Calling Tavily MCP...")
-
-                result = await search_tool.ainvoke(
-                    tool_call["args"]
+                result = await search_tool.ainvoke(args)
+                compressed = compress_tavily_result(result)
+                research_context = add_sources(
+                    research_context,
+                    compressed
                 )
-
             except Exception as e:
                 print(f"\n❌ Tavily failed: {e}")
-
-                tool_results.append(
-                    ToolMessage(
-                        content=json.dumps({
-                            "error": "Tavily search failed",
-                            "message": str(e)
-                        }),
-                        tool_call_id=tool_call["id"]
-                    )
-                )
-
-                continue
-
-            compressed_result = compress_tavily_result(result)
-
-            research_context.extend(compressed_result)
-
-            # Keep only best/first MAX_SOURCES
-            research_context = research_context[:MAX_SOURCES]
+                compressed = [{
+                    "error": "Tavily search failed",
+                    "message": str(e)
+                }]
 
             print(
-                f"\n📚 Total sources collected: "
+                f"📚 Total sources collected: "
                 f"{len(research_context)}"
             )
 
             tool_results.append(
                 ToolMessage(
-                    content=json.dumps(compressed_result),
+                    content=json.dumps(compressed),
                     tool_call_id=tool_call["id"]
                 )
             )
 
         messages.extend(tool_results)
 
-        # Don't ask LLM for another round
-        # after reaching the budget.
-        if tool_call_count >= MAX_TOOL_CALLS:
+        if tool_call_count >= MAX_TOOL_CALLS_PER_PASS:
             print("\n🛑 Tool call budget exhausted.")
             break
 
-        print(
-            "\n📤 Sending Tavily results "
-            "back to research LLM..."
-        )
-
+        print("\n📤 Sending Tavily results back to research LLM...")
         response = await llm_with_tools.ainvoke(messages)
-
         messages.append(response)
 
         print("\n📥 Research LLM response:")
-        print(response.content)
-
-        print("\nAdditional tool calls:")
-        print(response.tool_calls)
-
-    # --------------------------------------------------
-    # Structured output
-    # --------------------------------------------------
+        print("Content:", response.content)
+        print("Additional tool calls:", response.tool_calls)
 
     print("\n" + "-" * 60)
     print("🧩 EXTRACTING STRUCTURED FINDINGS")
     print("-" * 60)
 
-    print(
-        f"Sending {len(research_context)} sources "
-        "to structured-output LLM"
+    llm_sources = select_sources(
+        research_context,
+        MAX_CONTEXT_SOURCES
     )
 
-    structured_llm = llm.with_structured_output(
-        ResearchOutput
-    )
+    structured_prompt = """
+Extract the research findings from the supplied sources.
+
+Return only findings that are directly supported by the sources.
+
+For each finding:
+- claim: factual claim
+- evidence: concise supporting evidence
+- source_url: supporting URL
+- confidence: number from 0 to 1
+
+Also determine whether the research is complete.
+
+Re-evaluate the previous missing_information list.
+
+Remove a missing-information item if the supplied evidence now resolves it.
+
+Keep an item only if important evidence is still missing.
+
+If new important evidence gaps exist, add them.
+
+If all important evidence gaps are resolved:
+research_complete = true
+missing_information = []
+
+Otherwise:
+research_complete = false
+missing_information = [remaining specific evidence gaps]
+
+Do not invent facts.
+Do not return JSON as strings.
+"""
+
+    structured_input = {
+        "user_query": state["user_query"],
+        "previous_findings": compact_findings(
+        state.get("research_findings", []),
+        6
+        ),
+        "previous_risks": existing_risks,
+        "previous_missing_information": missing_information[:5],
+        "sources": [
+        {
+            "title": s["title"],
+            "url": s["url"],
+            "content": s["content"][:600]
+        }
+        for s in llm_sources[:8]
+    ]
+    }
+
+    print("\n📤 Sending sources to structured LLM...")
+    print(f"Sources sent: {len(llm_sources)}")
+
+    structured_llm = llm.with_structured_output(ResearchOutput)
 
     research_output = await structured_llm.ainvoke([
-        SystemMessage(content="""
-Extract structured research findings from the provided research results.
-
-Only include claims supported by evidence.
-
-For every finding:
-- claim
-- evidence
-- source_url
-- confidence
-"""),
-
-        HumanMessage(
-            content=json.dumps({
-                "user_query": state["user_query"],
-                "sources": research_context
-            })
-        )
+        SystemMessage(content=structured_prompt),
+        HumanMessage(content=json.dumps(structured_input))
     ])
 
-    print("\n📥 STRUCTURED RESEARCH OUTPUT:")
-    print(research_output)
+    merged_findings = merge_findings(
+        state.get("research_findings", []),
+        research_output.findings
+    )
 
-    print("\n📊 FINDINGS:")
-    for finding in research_output.findings:
-        print(f"\nClaim: {finding.claim}")
-        print(f"Evidence: {finding.evidence}")
-        print(f"Source: {finding.source_url}")
-        print(f"Confidence: {finding.confidence}")
+    research_complete = (
+        research_output.research_complete
+    )
 
-    print("\n✅ RESEARCH AGENT FINISHED")
+    needs_more_research = (
+        not research_complete
+    )
+
+    print("\n📥 RESEARCH OUTPUT:")
+    print(
+        f"Research pass: "
+        f"{research_passes}"
+    )
+
+    print(
+        f"New findings: "
+        f"{len(research_output.findings)}"
+    )
+
+    print(
+        f"Total findings: "
+        f"{len(merged_findings)}"
+    )
+
+    print(
+        f"Research complete: "
+        f"{research_complete}"
+    )
+
+    print(
+        f"Missing information: "
+        f"{research_output.missing_information}"
+    )
 
     return {
-        "research_findings": research_output.findings,
-
+        "research_findings": merged_findings,
+        "research_sources": research_context,
+        "research_queries": existing_queries,
+        "needs_more_research":  needs_more_research,
+        "research_complete": research_output.research_complete,
+        "missing_information": research_output.missing_information,
+        "research_passes": research_passes,
+        "completed_agents": ["research_agent"],
+        "workflow_steps": workflow_steps,
         "messages": [
             AIMessage(
                 content=(
-                    f"Research Agent completed research and "
-                    f"found {len(research_output.findings)} findings."
+                    "Research Agent completed "
+                    f"research pass "
+                    f"{research_passes} and found "
+                    f"{len(research_output.findings)} "
+                    "new findings."
                 ),
                 name="research_agent"
             )

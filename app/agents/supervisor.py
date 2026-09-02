@@ -1,133 +1,187 @@
 from app.graph.state import AgentState
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Literal
 
-from langchain_core.messages import HumanMessage, SystemMessage
-from app.core.llm import llm
+MAX_WORKFLOW_STEPS = 8
+MAX_RESEARCH_PASSES = 3
 
 class SupervisorDecision(BaseModel):
     next_agent: Literal[
         "research_agent",
-        #"risk_agent",
+        "risk_agent",
         #"fact_checker",
         "report_generator",
         #"human_review"
     ]
 
-final_supervisor_prompt = """
-You are the Supervisor Agent in a multi-agent research system.
-
-Your job is to analyze the current state of the research and decide which agent should work next.
-
-Available agents:
-
-research_agent: Finds information and evidence needed to answer the user's question.
-risk_agent: Identifies risks, limitations, and counterarguments.
-fact_checker: Verifies important claims and detects conflicting or unsupported information.
-report_generator: Creates the final response when the research is complete.
-
-Rules:
-
-Choose research_agent when more information is needed.
-Choose risk_agent when risks or counterarguments need to be investigated.
-Choose fact_checker when findings need verification.
-Choose report_generator only when the research is complete and important claims have been checked.
-Choose human_review when an important conflict cannot be resolved automatically.
-Do not perform research yourself.
-Do not repeat unnecessary work.
-If information is missing or unreliable, route to the appropriate agent.
-
-Analyze the current state and select the next step.
-"""
+    reasoning: str = Field(
+        description=(
+            "Brief explanation for why this agent "
+            "should run next."
+        )
+    )
 
 supervisor_prompt = """
-You are the Supervisor Agent in a multi-agent research system.
+You are the Supervisor Agent in a dynamic multi-agent
+research system.
 
-Your job is to analyze the current state of the research and decide which
+Your job is to inspect the CURRENT STATE and decide which
 agent should work next.
 
 Available agents:
 
 research_agent:
-Finds information and evidence needed to answer the user's question.
+Collects additional factual evidence.
+
+risk_agent:
+Analyzes risks, limitations, trade-offs, uncertainties,
+and counterarguments using available research.
 
 report_generator:
-Creates the final response when the research is complete.
+Creates the final answer.
 
-Rules:
+Decision rules:
 
-- Choose research_agent when more information is needed.
-- Choose report_generator when the available research is sufficient to answer
-  the user's question.
-- Do not choose agents that are not listed as available.
-- Do not perform research yourself.
-- Do not repeat unnecessary work.
-- Analyze the current state and select the next step.
+Choose research_agent when:
+- important information is missing
+- needs_more_research is true
+- evidence is insufficient
+- the current research does not adequately answer the user
+
+Choose risk_agent when:
+- research findings exist
+- risk analysis is incomplete
+- risks, limitations, or counterarguments are important
+  for answering the user's question
+
+Choose report_generator when:
+- research is sufficient
+- risk analysis is complete when relevant
+- no important information is missing
+- needs_more_research is false
+
+Important rules:
+
+- Analyze the CURRENT STATE, not assumptions.
+- Do not repeat work unnecessarily.
+- Do not select research_agent unless additional research
+  is genuinely needed.
+- Do not select risk_agent if risk analysis is already
+  sufficient.
+- Select exactly one agent.
 """
 
-def supervisor_agent(state: AgentState):
+async def supervisor_agent(state: AgentState):
+
+    workflow_steps = state.get("workflow_steps", 0) + 1
+    research_passes = state.get("research_passes", 0)
 
     print("\n" + "=" * 60)
     print("🧠 SUPERVISOR STARTED")
     print("=" * 60)
 
-    print("User query:")
-    print(state["user_query"])
-
-    print("\nResearch findings:")
-    print(state.get("research_findings", []))
-
-    print("\nRisks:")
-    print(state.get("risks", []))
-
-    print("\nVerifications:")
-    print(state.get("verifications", []))
-
-    print("\nHuman review:")
-    print(state.get("requires_human_review", False))
-
-    if state.get("requires_human_review"):
-        print("⚠️ Routing to HUMAN REVIEW")
-
-        return {
-            "next_agent": "human_review"
-        }
-
-    structured_llm = llm.with_structured_output(
-        SupervisorDecision
+    research_complete = state.get(
+        "research_complete",
+        False
     )
 
-    context = f"""
-User Query:
-{state["user_query"]}
+    risk_analysis_complete = state.get(
+        "risk_analysis_complete",
+        False
+    )
 
-Research Findings:
-{state.get("research_findings", [])}
+    needs_more_research = state.get(
+        "needs_more_research",
+        False
+    )
 
-Risks Identified:
-{state.get("risks", [])}
+    research_exhausted = state.get(
+        "research_exhausted",
+        False
+    )
 
-Fact Check Results:
-{state.get("verifications", [])}
+    print(f"Workflow step: {workflow_steps}")
+    print(f"Research passes: {research_passes}")
+    print(f"Research complete: {research_complete}")
+    print(f"Needs more research: {needs_more_research}")
+    print(f"Research exhausted: {research_exhausted}")
+    print(f"Risk complete: {risk_analysis_complete}")
 
-Human Review Required:
-{state.get("requires_human_review", False)}
-"""
+    # ========================================================
+    # WORKFLOW LIMIT
+    # ========================================================
 
-    print("\n📤 Sending state to supervisor LLM...")
+    if workflow_steps >= MAX_WORKFLOW_STEPS:
 
-    decision = structured_llm.invoke([
-        SystemMessage(content=supervisor_prompt),
-        HumanMessage(content=context)
-    ])
+        print("\n🛑 Maximum workflow steps reached.")
 
-    print("\n📥 Supervisor decision:")
-    print(decision)
+        return {
+            "next_agent": "report_generator",
+            "workflow_steps": workflow_steps,
+            "requires_human_review": True,
+        }
 
-    print(f"\n➡️ NEXT AGENT: {decision.next_agent}")
+    # ========================================================
+    # RESEARCH
+    # ========================================================
+
+    if not research_complete and not research_exhausted:
+
+        if research_passes < MAX_RESEARCH_PASSES:
+
+            print(
+                f"\n➡️ Research required."
+                f" Pass {research_passes + 1}/"
+                f"{MAX_RESEARCH_PASSES}"
+            )
+
+            return {
+                "next_agent": "research_agent",
+                "workflow_steps": workflow_steps,
+            }
+
+        # ----------------------------------------------------
+        # RESEARCH LIMIT REACHED
+        # ----------------------------------------------------
+
+        print(
+            "\n🛑 Maximum research passes reached."
+        )
+
+        print(
+            "➡️ Accepting remaining evidence gaps."
+        )
+
+        return {
+            "next_agent": "risk_agent",
+            "workflow_steps": workflow_steps,
+            "research_exhausted": True,
+        }
+
+    # ========================================================
+    # RISK ANALYSIS
+    # ========================================================
+
+    if not risk_analysis_complete:
+
+        print("\n➡️ Risk analysis required.")
+
+        return {
+            "next_agent": "risk_agent",
+            "workflow_steps": workflow_steps,
+        }
+
+    # ========================================================
+    # REPORT
+    # ========================================================
+
+    print("\n➡️ Research complete.")
+    print("➡️ Risk analysis complete.")
+    print("➡️ Generating final report.")
 
     return {
-        "next_agent": decision.next_agent
+        "next_agent": "report_generator",
+        "workflow_steps": workflow_steps,
     }
 
 def route_supervisor(state: AgentState):

@@ -2,6 +2,7 @@ from typing import Annotated, Literal
 from typing_extensions import TypedDict
 from pydantic import BaseModel, Field
 from langgraph.graph.message import add_messages
+from operator import add
 
 class Finding(BaseModel):
     claim: str
@@ -35,7 +36,20 @@ class AgentState(TypedDict):
     risks: list[Risk]
     verifications: list[Verification]
 
+    research_sources: list[dict]
+    research_queries: Annotated[list[str], add]
+    research_passes: int
+    research_exhausted: bool
+
+    completed_agents: Annotated[list[str], add]
     next_agent: str | None
+
+    workflow_steps: int
+
+    research_complete: bool
+    risk_analysis_complete: bool
+    needs_more_research: bool
+    missing_information: list[str]
 
     requires_human_review: bool
     human_decision: str | None
