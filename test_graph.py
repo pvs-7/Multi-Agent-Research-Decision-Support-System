@@ -36,6 +36,9 @@ Should a country transition to electric vehicles by 2035?
         "needs_more_research": False,
         "missing_information": [],
 
+        "fact_check_complete": False,
+        "research_requests": [],
+
         "requires_human_review": False,
         "human_decision": None,
         "human_feedback": None,

@@ -2,14 +2,14 @@ from app.graph.state import AgentState
 from pydantic import BaseModel, Field
 from typing import Literal
 
-MAX_WORKFLOW_STEPS = 8
+MAX_WORKFLOW_STEPS = 10
 MAX_RESEARCH_PASSES = 3
 
 class SupervisorDecision(BaseModel):
     next_agent: Literal[
         "research_agent",
         "risk_agent",
-        #"fact_checker",
+        "fact_checker_agent",
         "report_generator",
         #"human_review"
     ]
@@ -21,55 +21,6 @@ class SupervisorDecision(BaseModel):
         )
     )
 
-supervisor_prompt = """
-You are the Supervisor Agent in a dynamic multi-agent
-research system.
-
-Your job is to inspect the CURRENT STATE and decide which
-agent should work next.
-
-Available agents:
-
-research_agent:
-Collects additional factual evidence.
-
-risk_agent:
-Analyzes risks, limitations, trade-offs, uncertainties,
-and counterarguments using available research.
-
-report_generator:
-Creates the final answer.
-
-Decision rules:
-
-Choose research_agent when:
-- important information is missing
-- needs_more_research is true
-- evidence is insufficient
-- the current research does not adequately answer the user
-
-Choose risk_agent when:
-- research findings exist
-- risk analysis is incomplete
-- risks, limitations, or counterarguments are important
-  for answering the user's question
-
-Choose report_generator when:
-- research is sufficient
-- risk analysis is complete when relevant
-- no important information is missing
-- needs_more_research is false
-
-Important rules:
-
-- Analyze the CURRENT STATE, not assumptions.
-- Do not repeat work unnecessarily.
-- Do not select research_agent unless additional research
-  is genuinely needed.
-- Do not select risk_agent if risk analysis is already
-  sufficient.
-- Select exactly one agent.
-"""
 
 async def supervisor_agent(state: AgentState):
 
@@ -90,6 +41,11 @@ async def supervisor_agent(state: AgentState):
         False
     )
 
+    fact_check_complete = state.get(
+        "fact_check_complete", 
+        False
+    )
+
     needs_more_research = state.get(
         "needs_more_research",
         False
@@ -100,12 +56,14 @@ async def supervisor_agent(state: AgentState):
         False
     )
 
+
     print(f"Workflow step: {workflow_steps}")
     print(f"Research passes: {research_passes}")
     print(f"Research complete: {research_complete}")
     print(f"Needs more research: {needs_more_research}")
     print(f"Research exhausted: {research_exhausted}")
     print(f"Risk complete: {risk_analysis_complete}")
+    print(f"Fact check complete:  {fact_check_complete}")
 
     # ========================================================
     # WORKFLOW LIMIT
@@ -114,6 +72,28 @@ async def supervisor_agent(state: AgentState):
     if workflow_steps >= MAX_WORKFLOW_STEPS:
 
         print("\n🛑 Maximum workflow steps reached.")
+
+        # ----------------------------------------------------
+        # FACT CHECKER MUST RUN AT LEAST ONCE
+        # ----------------------------------------------------
+
+        if not fact_check_complete:
+
+            print("⚠️ Fact checking has not run yet.")
+            print("➡️ Forcing one fact-checking pass before report.")
+
+            return {
+                "next_agent": "fact_checker_agent",
+                "workflow_steps": workflow_steps,
+                "requires_human_review": True,
+            }
+
+        # ----------------------------------------------------
+        # FACT CHECKER ALREADY RAN
+        # ----------------------------------------------------
+
+        print("➡️ Fact checking already completed.")
+        print("➡️ Proceeding to report generator.")
 
         return {
             "next_agent": "report_generator",
@@ -144,13 +124,8 @@ async def supervisor_agent(state: AgentState):
         # RESEARCH LIMIT REACHED
         # ----------------------------------------------------
 
-        print(
-            "\n🛑 Maximum research passes reached."
-        )
-
-        print(
-            "➡️ Accepting remaining evidence gaps."
-        )
+        print("\n🛑 Maximum research passes reached.")
+        print("➡️ Accepting remaining evidence gaps.")
 
         return {
             "next_agent": "risk_agent",
@@ -172,11 +147,48 @@ async def supervisor_agent(state: AgentState):
         }
 
     # ========================================================
+    # MORE RESEARCH REQUIRED
+    # ========================================================
+
+    if needs_more_research and not research_exhausted:
+
+        if research_passes < MAX_RESEARCH_PASSES:
+
+            print("\n🔄 More research required.")
+            print("➡️ Returning to research agent.")
+
+            return {
+                "next_agent": "research_agent",
+                "workflow_steps": workflow_steps,
+            }
+
+        print("\n🛑 Maximum research passes reached.")
+        print("➡️ Accepting remaining evidence gaps.")
+
+        return {
+            "next_agent": "report_generator",
+            "workflow_steps": workflow_steps,
+            "research_exhausted": True,
+        }
+
+    # ========================================================
+    # FACT CHECKING
+    # ========================================================
+
+    if not fact_check_complete:
+
+        return {
+            "next_agent": "fact_checker_agent",
+            "workflow_steps": workflow_steps,
+        }
+
+    # ========================================================
     # REPORT
     # ========================================================
 
     print("\n➡️ Research complete.")
     print("➡️ Risk analysis complete.")
+    print("➡️ Fact checking complete.")
     print("➡️ Generating final report.")
 
     return {

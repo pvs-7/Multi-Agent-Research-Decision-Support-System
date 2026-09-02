@@ -3,7 +3,7 @@ from pydantic import BaseModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from app.graph.state import Finding, AgentState
 from app.mcp.client import client
-from app.core.llm import llm
+from app.core.llm import llm, llm2
 
 MAX_TOOL_CALLS_PER_PASS = 4
 MAX_RESULTS_PER_SEARCH = 3
@@ -20,54 +20,144 @@ class ResearchOutput(BaseModel):
 research_prompt = """
 You are the Research Agent in a multi-agent research system.
 
-Your job is to gather reliable evidence needed to answer the user's question.
+Your job is to gather reliable evidence needed to answer
+the user's question.
 
-You have access to tavily_search and may be called multiple times.
+You may be called multiple times as the workflow gathers
+additional evidence.
 
-FIRST RESEARCH PASS:
-- Identify the major dimensions of the question.
-- Perform a broad search.
+============================================================
+TOOL USAGE
+============================================================
+
+You may ONLY use the `tavily_search` tool.
+
+Every tavily_search call MUST include:
+
+- query: a non-empty string containing the search query
+
+Optional parameters include:
+
+- max_results
+- search_depth
+- include_raw_content
+- time_range
+- include_domains
+- exclude_domains
+- country
+
+IMPORTANT:
+
+- Never call tavily_search without a `query`.
+- Never use parameters named `cursor`.
+- Never use parameters named `id`.
+- Never invent tool parameters.
+- Only use parameters supported by the tavily_search schema.
+- Formulate the search query before calling the tool.
+
+Example valid search query:
+
+"electric vehicle battery supply chain bottlenecks"
+
+============================================================
+FIRST RESEARCH PASS
+============================================================
+
+- Identify the major dimensions of the user's question.
+- Perform one broad search to understand the topic.
 - Perform targeted searches for important dimensions.
 - Build a reliable evidence base.
 
-FOLLOW-UP RESEARCH PASS:
-- Inspect existing findings, risks, missing information, and previous searches.
-- Identify weak, unsupported, or missing evidence.
-- Search ONLY for those gaps.
-- Do NOT repeat previous searches.
-- Prioritize gaps identified by previous agents.
+============================================================
+FOLLOW-UP RESEARCH PASS
+============================================================
 
-SEARCH STRATEGY:
-- Cover all important dimensions of the question.
+Inspect:
+
+- existing findings
+- identified risks
+- missing information
+- research requests
+- previous searches
+
+Identify weak, unsupported, or missing evidence.
+
+Search ONLY for evidence gaps.
+
+Do NOT repeat previous searches.
+
+Prioritize explicit research requests from the Fact Checker.
+
+============================================================
+FACT CHECKER RESEARCH REQUESTS
+============================================================
+
+research_requests are explicit evidence gaps identified by
+the Fact Checker.
+
+Treat these as high-priority research tasks.
+
+For each request:
+
+- Identify the actual evidence needed.
+- Create a specific search query.
+- Search for authoritative sources that directly address
+  the evidence gap.
+
+Do not simply repeat the wording of the research request.
+
+============================================================
+SEARCH STRATEGY
+============================================================
+
+- Cover all important dimensions of the user's question.
 - Prefer authoritative and primary sources.
+- Use government sources when relevant.
+- Use academic research when relevant.
+- Use official organizations and reputable institutions.
 - Use different searches for different evidence gaps.
+- Avoid redundant searches.
 
-RULES:
+============================================================
+RULES
+============================================================
+
 - Use tavily_search only.
 - Maximum 4 searches per invocation.
 - Do not repeat previous queries.
 - Do not perform unnecessary searches.
 - Do not invent information.
-- Only produce findings supported by sources.
+- Only create findings supported by search results.
 - Do not write the final report.
+- Do not claim research is complete if important evidence
+  gaps remain.
 
-COMPLETION:
-Research is complete only when the evidence sufficiently covers the important
-dimensions of the question.
+============================================================
+COMPLETION
+============================================================
 
-If evidence is missing:
+Research is complete only when the available evidence
+sufficiently covers the important dimensions of the question.
+
+If important evidence is missing:
+
 research_complete = false
-missing_information = specific evidence gaps
+
+missing_information = a list of specific evidence gaps.
 
 If evidence is sufficient:
+
 research_complete = true
+
 missing_information = []
 
 During follow-up research prioritize:
-1. missing_information
-2. weakly supported dimensions
-3. risks identified by the Risk Agent
-4. dimensions without evidence
+
+1. research_requests from the Fact Checker
+2. missing_information
+3. weakly supported dimensions
+4. risks identified by the Risk Agent
+5. important dimensions without evidence
 """
 
 
@@ -152,14 +242,21 @@ async def research_agent(state: AgentState):
     existing_sources = list(state.get("research_sources", []))
     existing_queries = list(state.get("research_queries", []))
     missing_information = list(state.get("missing_information", []))
+    research_requests = list(state.get("research_requests", []))
 
     print(f"\n📚 Existing findings: {len(existing_findings)}")
     print(f"⚠️ Existing risks: {len(existing_risks)}")
     print(f"📄 Existing sources: {len(existing_sources)}")
     print(f"🔎 Previous searches: {len(existing_queries)}")
     print(f"❓ Missing information: {missing_information}")
+    print(f"🎯 Research requests: {research_requests}")
 
     tools = await client.get_tools()
+    for tool in tools:
+        print("\n" + "=" * 60)
+        print("NAME:", tool.name)
+        print("DESCRIPTION:", tool.description)
+        print("ARGS SCHEMA:", tool.args_schema)
     search_tool = next(t for t in tools if t.name == "tavily_search")
     llm_with_tools = llm.bind_tools([search_tool])
 
@@ -174,6 +271,7 @@ async def research_agent(state: AgentState):
     ),
         "existing_risks": existing_risks,
         "missing_information": missing_information,
+        "research_requests": research_requests,
         "previous_search_queries": existing_queries,
     }
 
@@ -211,8 +309,10 @@ async def research_agent(state: AgentState):
             if query:
                 normalized = query.strip().lower()
                 previous = {q.strip().lower() for q in existing_queries}
-                if normalized not in previous:
-                    existing_queries.append(query)
+                if normalized in previous:
+                    print("⚠️ Duplicate query skipped.")
+                    continue
+                existing_queries.append(query)
 
             try:
                 print("\n🌐 Calling Tavily MCP...")
@@ -318,7 +418,7 @@ Do not return JSON as strings.
     print("\n📤 Sending sources to structured LLM...")
     print(f"Sources sent: {len(llm_sources)}")
 
-    structured_llm = llm.with_structured_output(ResearchOutput)
+    structured_llm = llm2.with_structured_output(ResearchOutput, method="json_schema")
 
     research_output = await structured_llm.ainvoke([
         SystemMessage(content=structured_prompt),
@@ -368,10 +468,14 @@ Do not return JSON as strings.
         "research_findings": merged_findings,
         "research_sources": research_context,
         "research_queries": existing_queries,
+        # New research invalidates previous downstream analysis
+        "risk_analysis_complete": False,
+        "fact_check_complete": False,
         "needs_more_research":  needs_more_research,
         "research_complete": research_output.research_complete,
         "missing_information": research_output.missing_information,
         "research_passes": research_passes,
+        "research_requests" : research_output.missing_information,
         "completed_agents": ["research_agent"],
         "workflow_steps": workflow_steps,
         "messages": [

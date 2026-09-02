@@ -1,11 +1,16 @@
+import json
+
 from app.graph.state import AgentState
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.core.llm import llm
 
+
 report_generator_prompt = """
 You are the Report Generator Agent in a multi-agent research system.
 
-Your job is to create a clear, accurate, and well-structured final report based ONLY on the provided research findings, risks, and verification results.
+Your job is to create a clear, accurate, and well-structured
+final report based ONLY on the provided research findings,
+risks, and verification results.
 
 Rules:
 - Do not invent information.
@@ -32,6 +37,7 @@ Summarize any conflicting or uncertain information.
 Provide a balanced conclusion based on the available evidence.
 """
 
+
 def report_generator(state: AgentState):
 
     print("\n" + "=" * 60)
@@ -41,56 +47,87 @@ def report_generator(state: AgentState):
     print("\nUser query:")
     print(state["user_query"])
 
-    print("\nResearch findings:")
-    for finding in state.get("research_findings", []):
-        print(f"  - {finding}")
+    # --------------------------------------------------
+    # Get state data
+    # --------------------------------------------------
 
-    print("\nRisks:")
-    print(state.get("risks", []))
+    findings = state.get("research_findings", [])
+    risks = state.get("risks", [])
+    verifications = state.get("verifications", [])
 
-    print("\nVerifications:")
-    print(state.get("verifications", []))
+    # --------------------------------------------------
+    # Filter verification results
+    # --------------------------------------------------
 
     verified_claims = [
         verification
-        for verification in state.get("verifications", [])
-        if verification["status"] == "verified"
+        for verification in verifications
+        if verification.status == "verified"
     ]
-
-    print("\n✅ Verified claims:")
-    print(verified_claims)
 
     conflicting_claims = [
         verification
-        for verification in state.get("verifications", [])
-        if verification["status"] != "verified"
+        for verification in verifications
+        if verification.status != "verified"
     ]
 
+    print("\n✅ Verified claims:")
+    for verification in verified_claims:
+        print(verification)
+
     print("\n⚠️ Conflicting/unverified claims:")
-    print(conflicting_claims)
+    for verification in conflicting_claims:
+        print(verification)
 
-    context = f"""
-User Query:
-{state["user_query"]}
+    # --------------------------------------------------
+    # Convert Pydantic models to dictionaries
+    # --------------------------------------------------
 
-Research Findings:
-{state.get("research_findings", [])}
+    context = {
+        "user_query": state["user_query"],
 
-Risks:
-{state.get("risks", [])}
+        "research_findings": [
+            finding.model_dump()
+            for finding in findings
+        ],
 
-Verified Claims:
-{verified_claims}
+        "risks": [
+            risk.model_dump()
+            for risk in risks
+        ],
 
-Conflicting or Unverified Claims:
-{conflicting_claims}
-"""
+        "verified_claims": [
+            verification.model_dump()
+            for verification in verified_claims
+        ],
+
+        "conflicting_or_unverified_claims": [
+            verification.model_dump()
+            for verification in conflicting_claims
+        ],
+
+        "needs_more_research": state.get(
+            "needs_more_research",
+            False
+        ),
+
+        "missing_information": state.get(
+            "missing_information",
+            []
+        )
+    }
 
     print("\n📤 Sending information to report LLM...")
 
     response = llm.invoke([
         SystemMessage(content=report_generator_prompt),
-        HumanMessage(content=context)
+
+        HumanMessage(
+            content=json.dumps(
+                context,
+                indent=2
+            )
+        )
     ])
 
     print("\n📥 GENERATED REPORT:")

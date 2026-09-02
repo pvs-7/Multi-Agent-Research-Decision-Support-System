@@ -4,11 +4,12 @@ from langchain_ollama import ChatOllama
 
 load_dotenv()
 
-#llm = ChatGroq(
-#   model="openai/gpt-oss-120b",
-#)
+llm = ChatGroq(
+   model="openai/gpt-oss-120b",
+   temperature = 0,
+)
 
-llm = ChatOllama(
+llm2 = ChatOllama(
     model="ministral-3:3b",
     base_url="http://localhost:11434",
     temperature=0,

@@ -8,7 +8,7 @@ from langchain_core.messages import (
     SystemMessage
 )
 
-from app.core.llm import llm
+from app.core.llm import llm2
 from app.graph.state import AgentState, Risk
 
 class RiskOutput(BaseModel):
@@ -96,7 +96,7 @@ async def risk_agent(state: AgentState):
     # Structured LLM
     # ----------------------------------------------
 
-    structured_llm = llm.with_structured_output(RiskOutput)
+    structured_llm = llm2.with_structured_output(RiskOutput)
 
     print("\n📤 Sending research findings to Risk Agent...")
 
@@ -139,6 +139,7 @@ async def risk_agent(state: AgentState):
     return {
         "risks": risk_output.risks,
         "risk_analysis_complete": True,
+        "fact_check_complete": False,
         "needs_more_research": risk_output.needs_more_research,
         "missing_information": risk_output.missing_information,
         "completed_agents": ["risk_agent"],
