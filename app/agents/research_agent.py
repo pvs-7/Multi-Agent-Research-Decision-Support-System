@@ -475,7 +475,7 @@ Do not return JSON as strings.
         "research_complete": research_output.research_complete,
         "missing_information": research_output.missing_information,
         "research_passes": research_passes,
-        "research_requests" : research_output.missing_information,
+        #"research_requests" : research_output.missing_information,
         "completed_agents": ["research_agent"],
         "workflow_steps": workflow_steps,
         "messages": [

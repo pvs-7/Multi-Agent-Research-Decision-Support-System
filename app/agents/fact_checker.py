@@ -47,6 +47,54 @@ def compact_risks_for_fact_check(risks, limit=8):
         for r in risks[:limit]
     ]
 
+def build_human_review_package(verifications, research_sources):
+    sources_by_url = {
+        s.get("url"): s
+        for s in research_sources
+        if s.get("url")
+    }
+
+    review_items = []
+
+    for verification in verifications:
+
+        if verification.status not in (
+            "conflicting",
+            "unverified",
+        ):
+            continue
+
+        relevant_sources = []
+
+        for url in verification.source_url:
+            source = sources_by_url.get(url)
+
+            if source:
+                relevant_sources.append({
+                    "title": source.get("title", ""),
+                    "url": url,
+                    "content": source.get("content", "")[:2000],
+                })
+
+        if verification.status == "conflicting":
+            reason = "Sources materially disagree."
+
+        else:
+            reason = (
+                "Available evidence is insufficient "
+                "to verify this claim."
+            )
+
+        review_items.append({
+            "claim": verification.claim,
+            "status": verification.status,
+            "reason": reason,
+            "confidence": verification.confidence,
+            "notes": verification.notes,
+            "sources": relevant_sources,
+        })
+
+    return review_items
 
 fact_check_prompt = """
 You are the Fact Checker Agent in a multi-agent
@@ -111,8 +159,13 @@ notes:
 Brief explanation of why the item received this status.
 
 source_url:
-The URL of the provided source that supports your
-verification decision.
+A list of URLs from the provided sources that are relevant
+to evaluating this claim.
+
+For conflicting claims, include ALL relevant sources
+that disagree or materially support different conclusions.
+
+Use ONLY URLs provided in the input.
 
 SOURCE URL RULES:
 
@@ -197,6 +250,10 @@ async def fact_checker_agent(state: AgentState):
     print(f"\nNeeds more research: {output.needs_more_research}")
     print(f"Missing information: {output.missing_information}")
 
+    human_review_items = build_human_review_package(output.verifications, state.get("research_sources", []))
+
+
+
     return {
         "verifications": output.verifications,
         "fact_check_complete": output.fact_check_complete,
@@ -205,6 +262,8 @@ async def fact_checker_agent(state: AgentState):
         "research_requests": output.missing_information,
         "completed_agents": ["fact_checker"],
         "workflow_steps": workflow_steps,
+        "requires_human_review": bool(human_review_items),
+        "human_review_items": human_review_items,
         "messages": [
             AIMessage(
                 content=(

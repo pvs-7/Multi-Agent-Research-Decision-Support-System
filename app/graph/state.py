@@ -27,7 +27,7 @@ class Verification(BaseModel):
 
     confidence: float = Field(ge=0, le=1)
     notes: str
-    source_url: str | None = None
+    source_url: list[str] = []
 
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
@@ -60,6 +60,7 @@ class AgentState(TypedDict):
     input_guardrail_reason: str
 
     requires_human_review: bool
+    human_review_items: list[dict]
     human_decision: str | None
     human_feedback: str | None
 

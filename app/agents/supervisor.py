@@ -1,26 +1,7 @@
 from app.graph.state import AgentState
-from pydantic import BaseModel, Field
-from typing import Literal
 
-MAX_WORKFLOW_STEPS = 10
+MAX_WORKFLOW_STEPS = 12
 MAX_RESEARCH_PASSES = 3
-
-class SupervisorDecision(BaseModel):
-    next_agent: Literal[
-        "research_agent",
-        "risk_agent",
-        "fact_checker_agent",
-        "report_generator",
-        #"human_review"
-    ]
-
-    reasoning: str = Field(
-        description=(
-            "Brief explanation for why this agent "
-            "should run next."
-        )
-    )
-
 
 async def supervisor_agent(state: AgentState):
 
@@ -56,6 +37,13 @@ async def supervisor_agent(state: AgentState):
         False
     )
 
+    requires_human_review = state.get(
+        "requires_human_review",
+        False
+    )
+
+    human_decision = state.get("human_decision")
+
 
     print(f"Workflow step: {workflow_steps}")
     print(f"Research passes: {research_passes}")
@@ -64,7 +52,58 @@ async def supervisor_agent(state: AgentState):
     print(f"Research exhausted: {research_exhausted}")
     print(f"Risk complete: {risk_analysis_complete}")
     print(f"Fact check complete:  {fact_check_complete}")
+    print(f"Requires human review:  {requires_human_review}")
+    print(f"Human decision: {human_decision}")
 
+    # ========================================================
+    # PROCESS HUMAN DECISION
+    # ========================================================
+
+    if human_decision == "approve":
+
+        print("\n✅ Human approved.")
+        print("➡️ Proceeding to report.")
+
+        return {
+            "next_agent": "report_generator",
+            "workflow_steps": workflow_steps,
+            "requires_human_review": False,
+        }
+
+    if human_decision == "request_more_research":
+
+        print("\n🔄 Human requested more research.")
+
+        return {
+            "next_agent": "research_agent",
+            "workflow_steps": workflow_steps,
+            "requires_human_review": False,
+            "human_decision": None,
+        }
+
+    if human_decision == "reject":
+
+        print("\n❌ Human rejected the analysis.")
+
+        return {
+            "next_agent": "report_generator",
+            "workflow_steps": workflow_steps,
+            "requires_human_review": False,
+        }
+
+    # ========================================================
+    # HITL
+    # ========================================================
+
+    if requires_human_review and not human_decision:
+
+        print("\n⚠️ Human review required.")
+        print("➡️ Routing to human review.")
+
+        return {
+            "next_agent": "human_review",
+            "workflow_steps": workflow_steps,
+        }
     # ========================================================
     # WORKFLOW LIMIT
     # ========================================================
@@ -85,7 +124,7 @@ async def supervisor_agent(state: AgentState):
             return {
                 "next_agent": "fact_checker_agent",
                 "workflow_steps": workflow_steps,
-                "requires_human_review": True,
+                "requires_human_review": False,
             }
 
         # ----------------------------------------------------
