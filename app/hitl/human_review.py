@@ -1,5 +1,6 @@
 from langgraph.types import interrupt
 from app.graph.state import AgentState
+from langchain_core.messages import AIMessage
 
 def human_review(state: AgentState):
 
@@ -29,4 +30,14 @@ def human_review(state: AgentState):
         "human_decision": decision["decision"],
         "human_feedback": decision.get("feedback"),
         "requires_human_review": False,
+         "messages": [
+            AIMessage(
+                content=(
+                    f"👤 Human review completed: "
+                    f"{decision['decision']}"
+                ),
+                name="human_review"
+            )
+
+        ]
     }

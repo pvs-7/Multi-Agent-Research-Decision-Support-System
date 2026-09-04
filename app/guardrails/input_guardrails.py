@@ -2,6 +2,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 from app.core.llm import llm2
 from app.graph.state import AgentState
+from langchain_core.messages import AIMessage
 
 class InputGuardrailResult(BaseModel):
 
@@ -68,10 +69,23 @@ async def input_guardrail(state: AgentState):
     allowed = (result.allowed and result.category == "relevant")
 
     return {
-        "input_guardrail_allowed": allowed,
-        "input_categroy": result.category,
-        "input_guardrail_reason": result.reason
-    }
+    "input_guardrail_allowed": allowed,
+
+    "input_guardrail_category": result.category,
+
+    "input_guardrail_reason": result.reason,
+
+    "messages": [
+        AIMessage(
+            content=(
+                f"🛡️ Input Guardrail completed: "
+                f"{result.category}. "
+                f"{result.reason}"
+            ),
+            name="input_guardrail"
+        )
+    ]
+}
 
 def route_input_guardrail(state: AgentState):
     if state["input_guardrail_allowed"]:

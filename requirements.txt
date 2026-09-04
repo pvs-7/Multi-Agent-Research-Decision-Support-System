@@ -9,3 +9,4 @@ langchain-mcp-adapters
 psycopg[binary]
 langgraph-checkpoint-postgres
 langchain-ollama
+jinja2

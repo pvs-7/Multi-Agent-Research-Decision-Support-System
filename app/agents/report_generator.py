@@ -1,7 +1,7 @@
 import json
 
 from app.graph.state import AgentState
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage
 from app.core.llm import llm
 
 
@@ -38,7 +38,7 @@ Provide a balanced conclusion based on the available evidence.
 """
 
 
-def report_generator(state: AgentState):
+async def report_generator(state: AgentState):
 
     print("\n" + "=" * 60)
     print("📝 REPORT GENERATOR STARTED")
@@ -119,7 +119,7 @@ def report_generator(state: AgentState):
 
     print("\n📤 Sending information to report LLM...")
 
-    response = llm.invoke([
+    response = await llm.ainvoke([
         SystemMessage(content=report_generator_prompt),
 
         HumanMessage(
@@ -138,5 +138,15 @@ def report_generator(state: AgentState):
     print("\n✅ REPORT GENERATOR FINISHED")
 
     return {
-        "final_report": response.content
-    }
+    "final_report": response.content,
+
+    "messages": [
+        AIMessage(
+            content=(
+                "📝 Report Generator completed. "
+                "Final report is ready."
+            ),
+            name="report_generator"
+        )
+    ]
+}

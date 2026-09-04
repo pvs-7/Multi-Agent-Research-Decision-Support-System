@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>Research Decision Support</title>
+
+  <link
+    rel="stylesheet"
+    href="/static/style.css"
+  >
+
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+
+
+<body>
+
+  <!-- Background -->
+  <div class="page-bg">
+    <div class="gradient-circle circle-1"></div>
+    <div class="gradient-circle circle-2"></div>
+    <div class="gradient-circle circle-3"></div>
+  </div>
+
+
+  <main class="app-container">
+
+
+    <!-- ========================= -->
+    <!-- HERO -->
+    <!-- ========================= -->
+
+    <section class="hero-section">
+
+      <div class="badge">
+        🔬 Multi-Agent Research · Fact Checking · Risk Analysis · HITL
+      </div>
+
+      <h1>
+        Research with AI Decision Support
+      </h1>
+
+      <p>
+        Ask a research question and let multiple AI agents investigate,
+        analyze risks, verify claims, and generate a structured report.
+      </p>
+
+    </section>
+
+
+    <!-- ========================= -->
+    <!-- RESEARCH INPUT -->
+    <!-- ========================= -->
+
+    <section class="research-card">
+
+      <div class="card-header">
+
+        <div>
+
+          <h2>
+            What would you like to research?
+          </h2>
+
+          <p>
+            Ask a question, compare options, analyze a topic,
+            or investigate a decision.
+          </p>
+
+        </div>
+
+
+        <div
+          id="statusBadge"
+          class="status-pill"
+        >
+
+          <span class="status-dot"></span>
+
+          <span id="statusText">
+            Ready
+          </span>
+
+        </div>
+
+      </div>
+
+
+      <!-- Input -->
+
+      <div class="input-area">
+
+        <textarea
+          id="queryInput"
+          placeholder="Example: What are the risks and benefits of adopting AI in healthcare?"
+          rows="6"
+        ></textarea>
+
+
+        <button
+          id="researchButton"
+          onclick="startResearch()"
+        >
+
+          <span
+            id="buttonText"
+          >
+            Start Research
+          </span>
+
+
+          <span
+            id="buttonLoader"
+            class="loader hidden"
+          ></span>
+
+        </button>
+
+      </div>
+
+
+      <!-- Quick Prompts -->
+
+      <div class="quick-prompts">
+
+        <button
+          onclick="setPrompt('Compare the advantages and risks of renewable energy investments.')"
+        >
+          Renewable Energy
+        </button>
+
+
+        <button
+          onclick="setPrompt('What are the benefits and risks of using AI in healthcare?')"
+        >
+          AI Healthcare
+        </button>
+
+
+        <button
+          onclick="setPrompt('Compare remote work and office work for productivity and employee wellbeing.')"
+        >
+          Remote Work
+        </button>
+
+
+        <button
+          onclick="setPrompt('What are the major risks of investing in cryptocurrency?')"
+        >
+          Investment Risks
+        </button>
+
+      </div>
+
+    </section>
+
+
+    <!-- ========================= -->
+    <!-- RUNNING INDICATOR -->
+    <!-- ========================= -->
+
+    <section
+      id="runningSection"
+      class="running-section hidden"
+    >
+
+      <div class="running-header">
+
+        <div>
+
+          <span class="eyebrow">
+            Multi-Agent Workflow
+          </span>
+
+          <h2>
+            Research is in progress
+          </h2>
+
+          <p>
+            Your AI agents are analyzing the research question.
+          </p>
+
+        </div>
+
+
+        <div class="research-spinner">
+          <div class="spinner-ring"></div>
+        </div>
+
+      </div>
+
+
+      <!-- Agent Steps -->
+
+      <div class="agent-progress">
+
+
+        <div
+          id="progress-guardrail"
+          class="progress-step active"
+        >
+
+          <div class="progress-icon">
+            🛡️
+          </div>
+
+          <div>
+
+            <strong>
+              Input Guardrail
+            </strong>
+
+            <span>
+              Checking your request
+            </span>
+
+          </div>
+
+          <div class="step-loader"></div>
+
+        </div>
+
+
+        <div
+          id="progress-research"
+          class="progress-step"
+        >
+
+          <div class="progress-icon">
+            🔍
+          </div>
+
+          <div>
+
+            <strong>
+              Research Agent
+            </strong>
+
+            <span>
+              Gathering information
+            </span>
+
+          </div>
+
+          <div class="step-loader"></div>
+
+        </div>
+
+
+        <div
+          id="progress-risk"
+          class="progress-step"
+        >
+
+          <div class="progress-icon">
+            ⚠️
+          </div>
+
+          <div>
+
+            <strong>
+              Risk Analysis
+            </strong>
+
+            <span>
+              Evaluating risks and limitations
+            </span>
+
+          </div>
+
+          <div class="step-loader"></div>
+
+        </div>
+
+
+        <div
+          id="progress-fact"
+          class="progress-step"
+        >
+
+          <div class="progress-icon">
+            ✓
+          </div>
+
+          <div>
+
+            <strong>
+              Fact Checker
+            </strong>
+
+            <span>
+              Verifying research claims
+            </span>
+
+          </div>
+
+          <div class="step-loader"></div>
+
+        </div>
+
+
+        <div
+          id="progress-report"
+          class="progress-step"
+        >
+
+          <div class="progress-icon">
+            📝
+          </div>
+
+          <div>
+
+            <strong>
+              Report Generator
+            </strong>
+
+            <span>
+              Creating your final report
+            </span>
+
+          </div>
+
+          <div class="step-loader"></div>
+
+        </div>
+
+
+      </div>
+
+    </section>
+
+
+    <!-- ========================= -->
+    <!-- GUARDRAIL RESULT -->
+    <!-- ========================= -->
+
+    <section
+      id="guardrailSection"
+      class="result-section hidden"
+    >
+
+      <div class="result-header">
+
+        <div>
+
+          <span class="eyebrow">
+            Input Guardrail
+          </span>
+
+          <h2>
+            Request Validation
+          </h2>
+
+        </div>
+
+        <span
+          id="guardrailBadge"
+          class="guardrail-badge"
+        >
+          Passed
+        </span>
+
+      </div>
+
+
+      <p
+        id="guardrailReason"
+        class="guardrail-reason"
+      ></p>
+
+    </section>
+
+
+    <!-- ========================= -->
+    <!-- RESEARCH FINDINGS -->
+    <!-- ========================= -->
+
+    <section
+      id="findingsSection"
+      class="result-section hidden"
+    >
+
+      <div class="section-title">
+
+        <div class="section-icon">
+          🔍
+        </div>
+
+        <div>
+
+          <span class="eyebrow">
+            Research Agent
+          </span>
+
+          <h2>
+            Research Findings
+          </h2>
+
+        </div>
+
+      </div>
+
+
+      <div
+        id="findingsContainer"
+        class="items-grid"
+      ></div>
+
+    </section>
+
+
+    <!-- ========================= -->
+    <!-- RISKS -->
+    <!-- ========================= -->
+
+    <section
+      id="risksSection"
+      class="result-section hidden"
+    >
+
+      <div class="section-title">
+
+        <div class="section-icon">
+          ⚠️
+        </div>
+
+        <div>
+
+          <span class="eyebrow">
+            Risk Analysis
+          </span>
+
+          <h2>
+            Risks and Limitations
+          </h2>
+
+        </div>
+
+      </div>
+
+
+      <div
+        id="risksContainer"
+        class="items-grid"
+      ></div>
+
+    </section>
+
+
+    <!-- ========================= -->
+    <!-- FACT CHECK -->
+    <!-- ========================= -->
+
+    <section
+      id="factCheckSection"
+      class="result-section hidden"
+    >
+
+      <div class="section-title">
+
+        <div class="section-icon">
+          ✓
+        </div>
+
+        <div>
+
+          <span class="eyebrow">
+            Fact Checking
+          </span>
+
+          <h2>
+            Verification Results
+          </h2>
+
+        </div>
+
+      </div>
+
+
+      <div
+        id="verificationsContainer"
+        class="items-grid"
+      ></div>
+
+    </section>
+
+
+    <!-- ========================= -->
+    <!-- HUMAN REVIEW -->
+    <!-- ========================= -->
+
+    <section
+      id="humanReviewSection"
+      class="approval-section hidden"
+    >
+
+      <div class="approval-icon">
+        👤
+      </div>
+
+
+      <div class="approval-content">
+
+        <span class="eyebrow">
+          Human-in-the-Loop
+        </span>
+
+        <h2>
+          Human Review Required
+        </h2>
+
+
+        <p
+          id="humanReviewMessage"
+        ></p>
+
+
+        <div
+          id="reviewItemsContainer"
+          class="review-items"
+        ></div>
+
+
+        <textarea
+          id="feedbackInput"
+          class="feedback-input"
+          placeholder="Add feedback or instructions for the research workflow..."
+          rows="4"
+        ></textarea>
+
+
+        <div class="approval-actions">
+
+          <button
+            id="approveButton"
+            class="approve-btn"
+            onclick="submitReview('approve')"
+          >
+            Approve Report
+          </button>
+
+
+          <button
+            id="moreResearchButton"
+            class="more-research-btn"
+            onclick="submitReview('request_more_research')"
+          >
+            Request More Research
+          </button>
+
+
+          <button
+            id="rejectButton"
+            class="reject-btn"
+            onclick="submitReview('reject')"
+          >
+            Reject
+          </button>
+
+        </div>
+
+      </div>
+
+    </section>
+
+
+    <!-- ========================= -->
+    <!-- FINAL REPORT -->
+    <!-- ========================= -->
+
+    <section
+      id="reportSection"
+      class="final-report-section hidden"
+    >
+
+      <div class="result-header">
+
+        <div>
+
+          <span class="eyebrow">
+            Research Complete
+          </span>
+
+          <h2>
+            Final Research Report
+          </h2>
+
+          <p
+            id="threadInfo"
+          >
+            Thread ID: -
+          </p>
+
+        </div>
+
+
+        <button
+          class="copy-btn"
+          onclick="copyReport()"
+        >
+          Copy Report
+        </button>
+
+      </div>
+
+
+      <div
+        id="finalReport"
+        class="report-box"
+      ></div>
+
+    </section>
+
+
+    <!-- ========================= -->
+    <!-- ERROR -->
+    <!-- ========================= -->
+
+    <section
+      id="errorBox"
+      class="error-box hidden"
+    ></section>
+
+
+  </main>
+
+
+  <footer>
+
+    Built with FastAPI · LangGraph · Multi-Agent Research · Guardrails · HITL
+
+  </footer>
+
+
+  <script
+    src="/static/app.js"
+  ></script>
+
+</body>
+
+</html>

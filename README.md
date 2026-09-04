@@ -1,3 +1,10 @@
 # Multi-Agent-Research-Decision-Support-System
 
-missing information and research_requests are the same, the fact checker doesn't impact it, change
+
+show realtime which agent is running
+
+eliminate previous messages on the webpage after new query
+
+add aimessages to the supervisor to see the decisions
+
+the frontend updates at hitl
