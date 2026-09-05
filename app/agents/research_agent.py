@@ -311,6 +311,15 @@ async def research_agent(state: AgentState):
                 previous = {q.strip().lower() for q in existing_queries}
                 if normalized in previous:
                     print("⚠️ Duplicate query skipped.")
+                    tool_results.append(
+                        ToolMessage(
+                            content=json.dumps({
+                                "error": "Duplicate query",
+                                "message": "This search query was already executed in a previous pass."
+                            }),
+                            tool_call_id=tool_call["id"]
+                        )
+                    )
                     continue
                 existing_queries.append(query)
 

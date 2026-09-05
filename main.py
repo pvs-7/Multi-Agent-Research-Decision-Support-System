@@ -1,14 +1,15 @@
 from pathlib import Path
 import traceback
+import json
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
-from backend import run_research_agent, resume_research_agent
+from backend import run_research_agent, resume_research_agent, stream_research_agent
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -109,11 +110,55 @@ async def research(request_data: ResearchRequest):
             },
         )
 
+@app.post("/api/research/stream")
+async def research_stream(request_data: ResearchRequest):
+    user_message = (
+        request_data.message
+        .strip()
+    )
+
+    if not user_message:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": (
+                    "Research query cannot "
+                    "be empty."
+                ),
+            },
+        )
+
+    return StreamingResponse(
+        stream_research_agent(
+            user_input=user_message,
+            thread_id=(
+                request_data.thread_id
+            ),
+        ),
+
+        media_type=(
+            "text/event-stream"
+        ),
+
+        headers={
+
+            "Cache-Control":
+                "no-cache",
+
+            "Connection":
+                "keep-alive",
+
+            "X-Accel-Buffering":
+                "no",
+        },
+    )
+
 
 # ==========================================
 # HUMAN REVIEW
 # ==========================================
-
+"""
 @app.post("/api/research/review")
 async def review_research(request_data: HumanReviewRequest):
     try:
@@ -176,6 +221,81 @@ async def review_research(request_data: HumanReviewRequest):
                 "error": str(exc),
             },
         )
+"""
+@app.post("/api/research/review")
+async def review_research(request_data: HumanReviewRequest):
+
+    decision = request_data.decision.strip().lower()
+
+    valid_decisions = [
+        "approve",
+        "reject",
+        "request_more_research",
+    ]
+
+    if decision not in valid_decisions:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": (
+                    "Decision must be 'approve', 'reject', "
+                    "or 'request_more_research'."
+                ),
+            },
+        )
+
+    if (
+        decision == "reject"
+        and not request_data.feedback.strip()
+    ):
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "error": (
+                    "Please provide feedback when rejecting."
+                ),
+            },
+        )
+
+    async def event_stream():
+
+        try:
+
+            async for event in resume_research_agent(
+                thread_id=request_data.thread_id,
+                decision=decision,
+                feedback=request_data.feedback,
+            ):
+                yield event
+
+        except Exception as exc:
+
+            print("\n❌ HUMAN REVIEW ERROR:")
+            print(exc)
+            traceback.print_exc()
+
+            error_payload = {
+                "type": "error",
+                "error": str(exc),
+            }
+
+            yield (
+                f"data: "
+                f"{json.dumps(error_payload)}"
+                f"\n\n"
+            )
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 # ==========================================
