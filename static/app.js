@@ -1,10 +1,11 @@
-
-let currentThreadId =
-  localStorage.getItem("research_thread_id") || null;
-
+let currentThreadId = null;
 let currentProgressInterval = null;
-
 let waitingForReview = false;
+let isSubmittingReview = false;
+
+// Only the explicit backend "human_review_required"
+// event is allowed to open the Human Review UI.
+let allowHumanReviewDisplay = false;
 
 
 // ==========================================
@@ -16,8 +17,11 @@ function setPrompt(text) {
   const input =
     document.getElementById("queryInput");
 
-  input.value = text;
+  if (!input) {
+    return;
+  }
 
+  input.value = text;
   input.focus();
 }
 
@@ -37,10 +41,14 @@ function setStatus(
   const statusText =
     document.getElementById("statusText");
 
-  statusText.textContent = text;
+  if (statusText) {
+    statusText.textContent = text;
+  }
 
-  badge.className =
-    `status-pill ${type}`;
+  if (badge) {
+    badge.className =
+      `status-pill ${type}`;
+  }
 }
 
 
@@ -51,41 +59,46 @@ function setStatus(
 function setLoading(isLoading) {
 
   const button =
-    document.getElementById(
-      "researchButton"
-    );
+    document.getElementById("researchButton");
+
+  const input =
+    document.getElementById("queryInput");
 
   const buttonText =
-    document.getElementById(
-      "buttonText"
-    );
+    document.getElementById("buttonText");
 
   const buttonLoader =
-    document.getElementById(
-      "buttonLoader"
-    );
+    document.getElementById("buttonLoader");
 
-  button.disabled = isLoading;
+
+  if (button) {
+    button.disabled = isLoading;
+  }
+
+  if (input) {
+    input.disabled = isLoading;
+  }
+
 
   if (isLoading) {
 
-    buttonText.classList.add(
-      "hidden"
-    );
+    if (buttonText) {
+      buttonText.classList.add("hidden");
+    }
 
-    buttonLoader.classList.remove(
-      "hidden"
-    );
+    if (buttonLoader) {
+      buttonLoader.classList.remove("hidden");
+    }
 
   } else {
 
-    buttonText.classList.remove(
-      "hidden"
-    );
+    if (buttonText) {
+      buttonText.classList.remove("hidden");
+    }
 
-    buttonLoader.classList.add(
-      "hidden"
-    );
+    if (buttonLoader) {
+      buttonLoader.classList.add("hidden");
+    }
   }
 }
 
@@ -97,15 +110,15 @@ function setLoading(isLoading) {
 function showError(message) {
 
   const errorBox =
-    document.getElementById(
-      "errorBox"
-    );
+    document.getElementById("errorBox");
+
+  if (!errorBox) {
+    return;
+  }
 
   errorBox.textContent = message;
 
-  errorBox.classList.remove(
-    "hidden"
-  );
+  errorBox.classList.remove("hidden");
 
   errorBox.scrollIntoView({
     behavior: "smooth",
@@ -117,14 +130,13 @@ function showError(message) {
 function hideError() {
 
   const errorBox =
-    document.getElementById(
-      "errorBox"
-    );
+    document.getElementById("errorBox");
 
-  errorBox.classList.add(
-    "hidden"
-  );
+  if (!errorBox) {
+    return;
+  }
 
+  errorBox.classList.add("hidden");
   errorBox.textContent = "";
 }
 
@@ -134,15 +146,31 @@ function hideError() {
 // ==========================================
 
 function renderMarkdown(element, markdown) {
+
+  if (!element) {
+    return;
+  }
+
   let text = "";
 
+
   if (markdown == null) {
+
     text = "";
-  } else if (typeof markdown === "string") {
+
+  } else if (
+    typeof markdown === "string"
+  ) {
+
     text = markdown;
-  } else if (Array.isArray(markdown)) {
+
+  } else if (
+    Array.isArray(markdown)
+  ) {
+
     text = markdown
       .map(item => {
+
         if (typeof item === "string") {
           return item;
         }
@@ -165,30 +193,50 @@ function renderMarkdown(element, markdown) {
       })
       .filter(Boolean)
       .join("\n\n");
-  } else if (typeof markdown === "object") {
-    if (typeof markdown.text === "string") {
+
+  } else if (
+    typeof markdown === "object"
+  ) {
+
+    if (
+      typeof markdown.text === "string"
+    ) {
+
       text = markdown.text;
+
     } else if (
       typeof markdown.content === "string"
     ) {
+
       text = markdown.content;
+
     } else {
+
       text = JSON.stringify(markdown);
     }
+
   } else {
+
     text = String(markdown);
   }
 
-  if (typeof marked !== "undefined") {
-    element.innerHTML = marked.parse(text);
+
+  if (
+    typeof marked !== "undefined"
+  ) {
+
+    element.innerHTML =
+      marked.parse(text);
+
   } else {
+
     element.innerText = text;
   }
 }
 
 
 // ==========================================
-// PROGRESS ANIMATION
+// PROGRESS
 // ==========================================
 
 const PROGRESS_STEPS = [
@@ -209,21 +257,17 @@ const PROGRESS_STEPS = [
 function resetProgress() {
 
   PROGRESS_STEPS.forEach(
-    (stepId) => {
+    stepId => {
 
       const step =
-        document.getElementById(
-          stepId
-        );
+        document.getElementById(stepId);
 
-      step.classList.remove(
-        "active"
-      );
+      if (!step) {
+        return;
+      }
 
-      step.classList.remove(
-        "completed"
-      );
-
+      step.classList.remove("active");
+      step.classList.remove("completed");
     }
   );
 }
@@ -235,10 +279,17 @@ function startProgressAnimation() {
 
   resetProgress();
 
+
   const runningSection =
     document.getElementById(
       "runningSection"
     );
+
+
+  if (!runningSection) {
+    return;
+  }
+
 
   runningSection.classList.remove(
     "hidden"
@@ -261,9 +312,16 @@ function startProgressAnimation() {
             stepId
           );
 
+
+        if (!step) {
+          return;
+        }
+
+
         step.classList.remove(
           "active"
         );
+
 
         if (
           stepIndex < index
@@ -279,7 +337,6 @@ function startProgressAnimation() {
             "completed"
           );
         }
-
       }
     );
 
@@ -289,15 +346,16 @@ function startProgressAnimation() {
         PROGRESS_STEPS[index]
       );
 
-    activeStep.classList.add(
-      "active"
-    );
+
+    if (activeStep) {
+      activeStep.classList.add(
+        "active"
+      );
+    }
   }
 
 
-  activateStep(
-    currentStep
-  );
+  activateStep(currentStep);
 
 
   currentProgressInterval =
@@ -305,6 +363,7 @@ function startProgressAnimation() {
       () => {
 
         currentStep++;
+
 
         if (
           currentStep >=
@@ -315,6 +374,7 @@ function startProgressAnimation() {
 
           resetProgress();
         }
+
 
         activateStep(
           currentStep
@@ -336,8 +396,7 @@ function stopProgressAnimation() {
       currentProgressInterval
     );
 
-    currentProgressInterval =
-      null;
+    currentProgressInterval = null;
   }
 }
 
@@ -346,15 +405,20 @@ function completeProgress() {
 
   stopProgressAnimation();
 
+
   PROGRESS_STEPS.forEach(
-    (
-      stepId
-    ) => {
+    stepId => {
 
       const step =
         document.getElementById(
           stepId
         );
+
+
+      if (!step) {
+        return;
+      }
+
 
       step.classList.remove(
         "active"
@@ -363,7 +427,6 @@ function completeProgress() {
       step.classList.add(
         "completed"
       );
-
     }
   );
 }
@@ -373,14 +436,21 @@ function hideProgress() {
 
   stopProgressAnimation();
 
-  document
-    .getElementById(
+
+  const runningSection =
+    document.getElementById(
       "runningSection"
-    )
-    .classList.add(
+    );
+
+
+  if (runningSection) {
+
+    runningSection.classList.add(
       "hidden"
     );
+  }
 }
+
 
 // ==========================================
 // CLEAR PREVIOUS RESULTS
@@ -388,71 +458,127 @@ function hideProgress() {
 
 function clearPreviousResults() {
 
-  // Hide result sections
   const sections = [
+
     "guardrailSection",
+
     "findingsSection",
+
     "risksSection",
+
     "factCheckSection",
+
     "humanReviewSection",
+
     "reportSection",
+
     "errorBox"
+
   ];
 
-  sections.forEach((sectionId) => {
 
-    const section =
-      document.getElementById(sectionId);
+  sections.forEach(
+    sectionId => {
 
-    if (section) {
-      section.classList.add("hidden");
+      const section =
+        document.getElementById(
+          sectionId
+        );
+
+
+      if (section) {
+
+        section.classList.add(
+          "hidden"
+        );
+      }
     }
+  );
 
-  });
 
+  const containers = [
 
-  // Clear dynamic content
-  document.getElementById(
-    "findingsContainer"
-  ).innerHTML = "";
+    "findingsContainer",
 
-  document.getElementById(
-    "risksContainer"
-  ).innerHTML = "";
+    "risksContainer",
 
-  document.getElementById(
-    "verificationsContainer"
-  ).innerHTML = "";
+    "verificationsContainer",
 
-  document.getElementById(
-    "reviewItemsContainer"
-  ).innerHTML = "";
+    "reviewItemsContainer",
 
-  document.getElementById(
     "finalReport"
-  ).innerHTML = "";
 
-  document.getElementById(
-    "humanReviewMessage"
-  ).textContent = "";
-
-  document.getElementById(
-    "guardrailReason"
-  ).textContent = "";
-
-  document.getElementById(
-    "threadInfo"
-  ).textContent = "Thread ID: -";
+  ];
 
 
-  // Clear review feedback
-  document.getElementById(
-    "feedbackInput"
-  ).value = "";
+  containers.forEach(
+    containerId => {
+
+      const element =
+        document.getElementById(
+          containerId
+        );
 
 
-  // Reset review state
+      if (element) {
+        element.innerHTML = "";
+      }
+    }
+  );
+
+
+  const humanReviewMessage =
+    document.getElementById(
+      "humanReviewMessage"
+    );
+
+
+  if (humanReviewMessage) {
+    humanReviewMessage.textContent = "";
+  }
+
+
+  const guardrailReason =
+    document.getElementById(
+      "guardrailReason"
+    );
+
+
+  if (guardrailReason) {
+    guardrailReason.textContent = "";
+  }
+
+
+  const threadInfo =
+    document.getElementById(
+      "threadInfo"
+    );
+
+
+  if (threadInfo) {
+
+    threadInfo.textContent =
+      "Thread ID: -";
+  }
+
+
+  const feedbackInput =
+    document.getElementById(
+      "feedbackInput"
+    );
+
+
+  if (feedbackInput) {
+    feedbackInput.value = "";
+  }
+
+
   waitingForReview = false;
+  isSubmittingReview = false;
+  allowHumanReviewDisplay = false;
+
+
+  disableReviewButtons(true);
 }
 
 
@@ -478,31 +604,42 @@ function showGuardrail(data) {
     );
 
 
+  if (!section) {
+    return;
+  }
+
+
   const allowed =
     data.guardrail_allowed !== false;
 
 
-  if (allowed) {
+  if (badge) {
 
-    badge.textContent =
-      "✓ Passed";
+    if (allowed) {
 
-    badge.className =
-      "guardrail-badge passed";
+      badge.textContent =
+        "✓ Passed";
 
-  } else {
+      badge.className =
+        "guardrail-badge passed";
 
-    badge.textContent =
-      "Blocked";
+    } else {
 
-    badge.className =
-      "guardrail-badge blocked";
+      badge.textContent =
+        "Blocked";
+
+      badge.className =
+        "guardrail-badge blocked";
+    }
   }
 
 
-  reason.textContent =
-    data.guardrail_reason ||
-    "Input validation completed.";
+  if (reason) {
+
+    reason.textContent =
+      data.guardrail_reason ||
+      "Input validation completed.";
+  }
 
 
   section.classList.remove(
@@ -528,6 +665,11 @@ function showFindings(findings) {
     );
 
 
+  if (!section || !container) {
+    return;
+  }
+
+
   container.innerHTML = "";
 
 
@@ -550,6 +692,7 @@ function showFindings(findings) {
         document.createElement(
           "div"
         );
+
 
       card.className =
         "item-card";
@@ -641,6 +784,11 @@ function showRisks(risks) {
     );
 
 
+  if (!section || !container) {
+    return;
+  }
+
+
   container.innerHTML = "";
 
 
@@ -663,6 +811,7 @@ function showRisks(risks) {
         document.createElement(
           "div"
         );
+
 
       card.className =
         "item-card risk-card";
@@ -692,7 +841,7 @@ function showRisks(risks) {
 
         <div class="item-card-header">
 
-          <span class="severity ${severity}">
+          <span class="severity ${escapeHtml(severity)}">
             ${escapeHtml(severity)}
           </span>
 
@@ -717,6 +866,9 @@ function showRisks(risks) {
   );
 
 
+  // This is important:
+  // New Risk Agent results are allowed
+  // to make the Risks section visible again.
   section.classList.remove(
     "hidden"
   );
@@ -724,7 +876,7 @@ function showRisks(risks) {
 
 
 // ==========================================
-// VERIFICATIONS
+// FACT CHECK
 // ==========================================
 
 function showVerifications(
@@ -740,6 +892,11 @@ function showVerifications(
     document.getElementById(
       "verificationsContainer"
     );
+
+
+  if (!section || !container) {
+    return;
+  }
 
 
   container.innerHTML = "";
@@ -764,6 +921,7 @@ function showVerifications(
         document.createElement(
           "div"
         );
+
 
       card.className =
         "item-card";
@@ -793,7 +951,7 @@ function showVerifications(
 
         <div class="item-card-header">
 
-          <span class="verification-status ${status}">
+          <span class="verification-status ${escapeHtml(status)}">
             ${escapeHtml(status)}
           </span>
 
@@ -818,6 +976,9 @@ function showVerifications(
   );
 
 
+  // This is important:
+  // New Fact Checker results are allowed
+  // to make the Fact Check section visible.
   section.classList.remove(
     "hidden"
   );
@@ -830,7 +991,27 @@ function showVerifications(
 
 function showHumanReview(data) {
 
-  waitingForReview = true;
+  console.log(
+    "🔎 showHumanReview() called"
+  );
+
+
+  // ==========================================
+  // SAFETY CHECK
+  // ==========================================
+  //
+  // NEVER display HITL unless the backend
+  // explicitly sent human_review_required.
+  //
+
+  if (!allowHumanReviewDisplay) {
+
+    console.log(
+      "🚫 HITL display blocked — no explicit human_review_required event."
+    );
+
+    return;
+  }
 
 
   const section =
@@ -838,11 +1019,153 @@ function showHumanReview(data) {
       "humanReviewSection"
     );
 
-
   const message =
     document.getElementById(
       "humanReviewMessage"
     );
+
+  const container =
+    document.getElementById(
+      "reviewItemsContainer"
+    );
+
+
+  if (!section) {
+    return;
+  }
+
+
+  // ==========================================
+  // SAVE THREAD
+  // ==========================================
+
+  if (data.thread_id) {
+
+    currentThreadId =
+      data.thread_id;
+
+
+    localStorage.setItem(
+      "research_thread_id",
+      currentThreadId
+    );
+
+
+    console.log(
+      "💾 Human review thread:",
+      currentThreadId
+    );
+  }
+
+
+  // ==========================================
+  // MESSAGE
+  // ==========================================
+
+  if (message) {
+
+    message.textContent =
+      data.human_review_message ||
+      "Please review the research results.";
+  }
+
+
+  // ==========================================
+  // ITEMS
+  // ==========================================
+
+  if (container) {
+
+    container.innerHTML = "";
+
+
+    const items =
+      data.human_review_items || [];
+
+
+    items.forEach(
+      item => {
+
+        const card =
+          document.createElement(
+            "div"
+          );
+
+
+        card.className =
+          "item-card";
+
+
+        card.textContent =
+          typeof item === "string"
+            ? item
+            : (
+                item.content ||
+                item.claim ||
+                JSON.stringify(item)
+              );
+
+
+        container.appendChild(
+          card
+        );
+      }
+    );
+  }
+
+
+  // ==========================================
+  // SHOW HITL
+  // ==========================================
+
+  section.classList.remove(
+    "hidden"
+  );
+
+
+  waitingForReview = true;
+  isSubmittingReview = false;
+
+
+  disableReviewButtons(false);
+
+
+  setStatus(
+    "Waiting for human review",
+    "warning"
+  );
+
+
+  section.scrollIntoView({
+    behavior: "smooth",
+    block: "start"
+  });
+
+
+  console.log(
+    "👤 Human Review UI displayed"
+  );
+}
+
+
+// ==========================================
+// HIDE HUMAN REVIEW
+// ==========================================
+
+function hideHumanReview() {
+
+  const section =
+    document.getElementById(
+      "humanReviewSection"
+    );
+
+
+  if (section) {
+
+    section.classList.add(
+      "hidden"
+    );
+  }
 
 
   const container =
@@ -851,105 +1174,172 @@ function showHumanReview(data) {
     );
 
 
-  message.textContent =
-    data.human_review_message ||
-    "Please review the research results.";
+  if (container) {
+    container.innerHTML = "";
+  }
 
 
-  container.innerHTML = "";
+  const message =
+    document.getElementById(
+      "humanReviewMessage"
+    );
 
 
-  (
-    data.human_review_items ||
-    []
-  ).forEach(
-    (
-      item,
-      index
-    ) => {
+  if (message) {
+    message.textContent = "";
+  }
 
-      const card =
-        document.createElement(
-          "div"
+
+  console.log(
+    "🙈 Human Review UI hidden"
+  );
+}
+
+
+// ==========================================
+// HIDE EVERYTHING BELOW FINDINGS
+// ==========================================
+
+function hideResultsAfterResearchFindings() {
+
+  console.log(
+    "🧹 Clearing old downstream results..."
+  );
+
+
+  // ==========================================
+  // IMPORTANT
+  // ==========================================
+  //
+  // A previous HITL must not be allowed
+  // to reappear during the resumed workflow.
+  //
+
+  allowHumanReviewDisplay = false;
+
+
+  // ==========================================
+  // HIDE SECTIONS
+  // ==========================================
+
+  const sectionsToHide = [
+
+    "risksSection",
+
+    "factCheckSection",
+
+    "humanReviewSection",
+
+    "reportSection"
+
+  ];
+
+
+  sectionsToHide.forEach(
+    sectionId => {
+
+      const section =
+        document.getElementById(
+          sectionId
         );
 
-      card.className =
-        "review-item";
+
+      if (section) {
+
+        section.classList.add(
+          "hidden"
+        );
 
 
-      const status =
-        item.status ||
-        "review";
-
-
-      const claim =
-        item.claim ||
-        item.title ||
-        `Review Item ${index + 1}`;
-
-
-      const explanation =
-        item.reason ||
-        item.explanation ||
-        item.content ||
-        "";
-
-
-      card.innerHTML = `
-
-        <span class="verification-status ${status}">
-          ${escapeHtml(status)}
-        </span>
-
-        <h3>
-          ${escapeHtml(claim)}
-        </h3>
-
-        <p>
-          ${escapeHtml(explanation)}
-        </p>
-
-      `;
-
-
-      container.appendChild(
-        card
-      );
-
+        console.log(
+          `🙈 Hidden: ${sectionId}`
+        );
+      }
     }
   );
 
 
-  section.classList.remove(
-    "hidden"
-  );
+  // ==========================================
+  // CLEAR OLD RISKS
+  // ==========================================
 
-
-  section.scrollIntoView({
-    behavior: "smooth",
-    block: "start"
-  });
-}
-
-
-function hideHumanReview() {
-
-  waitingForReview = false;
-
-  document
-    .getElementById(
-      "humanReviewSection"
-    )
-    .classList.add(
-      "hidden"
+  const risksContainer =
+    document.getElementById(
+      "risksContainer"
     );
+
+
+  if (risksContainer) {
+    risksContainer.innerHTML = "";
+  }
+
+
+  // ==========================================
+  // CLEAR OLD FACT CHECK
+  // ==========================================
+
+  const verificationsContainer =
+    document.getElementById(
+      "verificationsContainer"
+    );
+
+
+  if (verificationsContainer) {
+    verificationsContainer.innerHTML = "";
+  }
+
+
+  // ==========================================
+  // CLEAR OLD HITL
+  // ==========================================
+
+  const reviewItemsContainer =
+    document.getElementById(
+      "reviewItemsContainer"
+    );
+
+
+  if (reviewItemsContainer) {
+    reviewItemsContainer.innerHTML = "";
+  }
+
+
+  const humanReviewMessage =
+    document.getElementById(
+      "humanReviewMessage"
+    );
+
+
+  if (humanReviewMessage) {
+    humanReviewMessage.textContent = "";
+  }
+
+
+  // ==========================================
+  // CLEAR OLD REPORT
+  // ==========================================
+
+  const finalReport =
+    document.getElementById(
+      "finalReport"
+    );
+
+
+  if (finalReport) {
+    finalReport.innerHTML = "";
+  }
+
+
+  console.log(
+    "🧹 Old Risks, Fact Check, HITL and Report cleared"
+  );
 }
 
 
 // ==========================================
 // FINAL REPORT
 // ==========================================
-/*
+
 function showFinalReport(data) {
 
   const section =
@@ -968,11 +1358,97 @@ function showFinalReport(data) {
     );
 
 
-  const reportText =
-    data.final_report ||
-    data.last_message ||
+  if (!section || !report) {
+    return;
+  }
+
+
+  let reportText =
+    data.final_report ??
+    data.last_message ??
     "";
 
+
+  // ==========================================
+  // ARRAY
+  // ==========================================
+
+  if (
+    Array.isArray(reportText)
+  ) {
+
+    reportText =
+      reportText
+        .map(item => {
+
+          if (
+            typeof item === "string"
+          ) {
+            return item;
+          }
+
+          if (
+            item &&
+            typeof item.text === "string"
+          ) {
+            return item.text;
+          }
+
+          if (
+            item &&
+            typeof item.content === "string"
+          ) {
+            return item.content;
+          }
+
+          return "";
+
+        })
+        .filter(Boolean)
+        .join("\n\n");
+  }
+
+
+  // ==========================================
+  // OBJECT
+  // ==========================================
+
+  if (
+    reportText &&
+    typeof reportText === "object"
+  ) {
+
+    if (
+      typeof reportText.text === "string"
+    ) {
+
+      reportText =
+        reportText.text;
+
+    } else if (
+      typeof reportText.content === "string"
+    ) {
+
+      reportText =
+        reportText.content;
+
+    } else {
+
+      reportText =
+        JSON.stringify(reportText);
+    }
+  }
+
+
+  reportText =
+    String(
+      reportText || ""
+    );
+
+
+  // ==========================================
+  // DISPLAY
+  // ==========================================
 
   renderMarkdown(
     report,
@@ -980,10 +1456,19 @@ function showFinalReport(data) {
   );
 
 
-  threadInfo.textContent =
-    `Thread ID: ${
-      data.thread_id || "-"
-    }`;
+  // ==========================================
+  // THREAD INFO
+  // ==========================================
+
+  if (threadInfo) {
+
+    threadInfo.textContent =
+      `Thread ID: ${
+        data.thread_id ||
+        currentThreadId ||
+        "-"
+      }`;
+  }
 
 
   section.classList.remove(
@@ -996,100 +1481,19 @@ function showFinalReport(data) {
     block: "start"
   });
 }
-*/
-function showFinalReport(data) {
 
-  const section =
-    document.getElementById("reportSection");
-
-  const report =
-    document.getElementById("finalReport");
-
-  const threadInfo =
-    document.getElementById("threadInfo");
-
-  let reportText =
-    data.final_report ??
-    data.last_message ??
-    "";
-
-  // Gemini/LangChain can sometimes return structured content.
-  if (Array.isArray(reportText)) {
-    reportText = reportText
-      .map(item => {
-        if (typeof item === "string") {
-          return item;
-        }
-
-        if (
-          item &&
-          typeof item.text === "string"
-        ) {
-          return item.text;
-        }
-
-        if (
-          item &&
-          typeof item.content === "string"
-        ) {
-          return item.content;
-        }
-
-        return "";
-      })
-      .filter(Boolean)
-      .join("\n\n");
-  }
-
-  if (
-    reportText &&
-    typeof reportText === "object"
-  ) {
-    if (
-      typeof reportText.text === "string"
-    ) {
-      reportText = reportText.text;
-    } else if (
-      typeof reportText.content === "string"
-    ) {
-      reportText = reportText.content;
-    } else {
-      reportText = JSON.stringify(reportText);
-    }
-  }
-
-  reportText = String(reportText || "");
-
-  renderMarkdown(
-    report,
-    reportText
-  );
-
-  threadInfo.textContent =
-    `Thread ID: ${
-      data.thread_id || "-"
-    }`;
-
-  section.classList.remove("hidden");
-
-  section.scrollIntoView({
-    behavior: "smooth",
-    block: "start"
-  });
-}
 
 // ==========================================
-// DISPLAY RESULT
+// DISPLAY COMPLETE RESULT
 // ==========================================
 
 function displayResearchResult(data) {
 
-  if (
-    data.thread_id
-  ) {
+  if (data.thread_id) {
 
     currentThreadId =
       data.thread_id;
+
 
     localStorage.setItem(
       "research_thread_id",
@@ -1098,9 +1502,7 @@ function displayResearchResult(data) {
   }
 
 
-  showGuardrail(
-    data
-  );
+  showGuardrail(data);
 
 
   if (
@@ -1130,11 +1532,15 @@ function displayResearchResult(data) {
     data.requires_human_review
   ) {
 
+    allowHumanReviewDisplay = true;
+
     showHumanReview(
       data
     );
 
   } else {
+
+    allowHumanReviewDisplay = false;
 
     hideHumanReview();
 
@@ -1148,159 +1554,15 @@ function displayResearchResult(data) {
 // ==========================================
 // START RESEARCH
 // ==========================================
-/*
-async function startResearch() {
-
-  hideError();
-
-
-  if (
-    waitingForReview
-  ) {
-
-    showError(
-      "Please complete the current human review before starting new research."
-    );
-
-    return;
-  }
-
-
-  const input =
-    document.getElementById(
-      "queryInput"
-    );
-
-
-  const message =
-    input.value.trim();
-
-
-  if (
-    !message
-  ) {
-
-    showError(
-      "Please enter a research question first."
-    );
-
-    input.focus();
-
-    return;
-  }
-
-  clearPreviousResults();
-
-
-  setLoading(
-    true
-  );
-
-
-  setStatus(
-    "Researching...",
-    "loading"
-  );
-
-
-  startProgressAnimation();
-
-
-  try {
-
-    const response =
-      await fetch(
-        "/api/research",
-        {
-          method: "POST",
-
-          headers: {
-            "Content-Type":
-              "application/json"
-          },
-
-          body:
-            JSON.stringify(
-              {
-                message: message,
-
-                thread_id:
-                  currentThreadId
-              }
-            )
-        }
-      );
-
-
-    const data =
-      await response.json();
-
-
-    if (
-      !response.ok ||
-      !data.success
-    ) {
-
-      throw new Error(
-        data.error ||
-        "Something went wrong during research."
-      );
-    }
-
-
-    completeProgress();
-
-
-    setTimeout(
-      () => {
-
-        hideProgress();
-
-        displayResearchResult(
-          data
-        );
-
-      },
-      800
-    );
-
-
-    setStatus(
-      data.requires_human_review
-        ? "Review Required"
-        : "Completed",
-      data.requires_human_review
-        ? "warning"
-        : "success"
-    );
-
-  } catch (error) {
-
-    hideProgress();
-
-
-    setStatus(
-      "Error",
-      "error"
-    );
-
-
-    showError(
-      error.message
-    );
-
-  } finally {
-
-    setLoading(
-      false
-    );
-  }
-}
-*/
 
 async function startResearch() {
 
   hideError();
+
+
+  // ==========================================
+  // DON'T START WHILE WAITING FOR HITL
+  // ==========================================
 
   if (waitingForReview) {
 
@@ -1317,9 +1579,24 @@ async function startResearch() {
       "queryInput"
     );
 
+
+  if (!input) {
+
+    showError(
+      "Research input was not found."
+    );
+
+    return;
+  }
+
+
   const message =
     input.value.trim();
 
+
+  // ==========================================
+  // VALIDATE INPUT
+  // ==========================================
 
   if (!message) {
 
@@ -1333,14 +1610,24 @@ async function startResearch() {
   }
 
 
+  // ==========================================
+  // NEW RESEARCH = NEW THREAD
+  // ==========================================
+
+  clearCurrentThread();
+
+
   clearPreviousResults();
 
+
   setLoading(true);
+
 
   setStatus(
     "Starting research...",
     "loading"
   );
+
 
   startAgentProgress();
 
@@ -1360,26 +1647,51 @@ async function startResearch() {
           },
 
           body:
-            JSON.stringify(
-              {
-                message: message,
+            JSON.stringify({
 
-                thread_id:
-                  currentThreadId
-              }
-            )
+              message:
+                message,
+
+              // Backend creates a new thread
+              thread_id:
+                null
+
+            })
         }
       );
 
 
     if (!response.ok) {
 
-      const error =
-        await response.json();
+      let errorMessage =
+        "Could not start research.";
+
+
+      try {
+
+        const error =
+          await response.json();
+
+
+        errorMessage =
+          error.error ||
+          errorMessage;
+
+      } catch (_) {
+        // Ignore JSON parsing error
+      }
+
 
       throw new Error(
-        error.error ||
-        "Could not start research."
+        errorMessage
+      );
+    }
+
+
+    if (!response.body) {
+
+      throw new Error(
+        "The server did not return a streaming response."
       );
     }
 
@@ -1405,7 +1717,6 @@ async function startResearch() {
 
 
       if (done) {
-
         break;
       }
 
@@ -1432,45 +1743,82 @@ async function startResearch() {
       ) {
 
         if (
-          !eventText.startsWith(
-            "data: "
-          )
+          !eventText.startsWith("data:")
         ) {
-
           continue;
         }
 
 
         const jsonText =
-          eventText.slice(
-            6
+          eventText
+            .replace(
+              /^data:\s*/,
+              ""
+            )
+            .trim();
+
+
+        if (!jsonText) {
+          continue;
+        }
+
+
+        try {
+
+          const event =
+            JSON.parse(
+              jsonText
+            );
+
+
+          console.log(
+            "📡 Research SSE event:",
+            event
           );
 
 
-        const event =
-          JSON.parse(
-            jsonText
+          handleStreamEvent(
+            event
           );
 
+        } catch (parseError) {
 
-        handleStreamEvent(
-          event
-        );
+          console.error(
+            "❌ Could not parse research SSE event:",
+            jsonText,
+            parseError
+          );
+        }
       }
     }
 
+
+    console.log(
+      "🏁 Research stream finished"
+    );
+
+
   } catch (error) {
 
+    console.error(
+      "❌ Research error:",
+      error
+    );
+
+
     hideProgress();
+
 
     setStatus(
       "Error",
       "error"
     );
 
+
     showError(
       error.message
     );
+
 
   } finally {
 
@@ -1478,10 +1826,11 @@ async function startResearch() {
   }
 }
 
+
 // ==========================================
 // SUBMIT HUMAN REVIEW
 // ==========================================
-/*
+
 async function submitReview(
   decision
 ) {
@@ -1489,9 +1838,25 @@ async function submitReview(
   hideError();
 
 
-  if (
-    !currentThreadId
-  ) {
+  // ==========================================
+  // PREVENT DOUBLE CLICK
+  // ==========================================
+
+  if (isSubmittingReview) {
+
+    console.log(
+      "⚠️ Review submission already in progress"
+    );
+
+    return;
+  }
+
+
+  // ==========================================
+  // CHECK THREAD
+  // ==========================================
+
+  if (!currentThreadId) {
 
     showError(
       "No active research thread found."
@@ -1508,8 +1873,14 @@ async function submitReview(
 
 
   const feedback =
-    feedbackInput.value.trim();
+    feedbackInput
+      ? feedbackInput.value.trim()
+      : "";
 
+
+  // ==========================================
+  // VALIDATE REJECT
+  // ==========================================
 
   if (
     decision === "reject" &&
@@ -1520,10 +1891,31 @@ async function submitReview(
       "Please provide feedback before rejecting."
     );
 
-    feedbackInput.focus();
+
+    if (feedbackInput) {
+      feedbackInput.focus();
+    }
+
 
     return;
   }
+
+
+  // ==========================================
+  // LOCK REVIEW
+  // ==========================================
+
+  isSubmittingReview = true;
+  waitingForReview = false;
+
+  // Prevent the old HITL from reopening.
+  allowHumanReviewDisplay = false;
+
+
+  disableReviewButtons(true);
+
+
+  setLoading(true);
 
 
   setStatus(
@@ -1532,11 +1924,32 @@ async function submitReview(
   );
 
 
-  //startProgressAnimation();
+  // ==========================================
+  // HIDE OLD HITL
+  // ==========================================
 
-  disableReviewButtons(
-    true
-  );
+  hideHumanReview();
+
+
+  // ==========================================
+  // NEEDS MORE RESEARCH
+  // ==========================================
+
+  if (
+    decision === "request_more_research"
+  ) {
+
+    hideResultsAfterResearchFindings();
+
+
+    console.log(
+      "🔄 Requesting more research for thread:",
+      currentThreadId
+    );
+  }
+
+
+  startAgentProgress();
 
 
   try {
@@ -1545,6 +1958,7 @@ async function submitReview(
       await fetch(
         "/api/research/review",
         {
+
           method: "POST",
 
           headers: {
@@ -1553,66 +1967,177 @@ async function submitReview(
           },
 
           body:
-            JSON.stringify(
-              {
-                thread_id:
-                  currentThreadId,
+            JSON.stringify({
 
-                decision:
-                  decision,
+              thread_id:
+                currentThreadId,
 
-                feedback:
-                  feedback
-              }
-            )
+              decision:
+                decision,
+
+              feedback:
+                feedback
+
+            })
         }
       );
 
 
-    const data =
-      await response.json();
+    console.log(
+      "📡 Review HTTP status:",
+      response.status
+    );
 
 
-    if (
-      !response.ok ||
-      !data.success
-    ) {
+    if (!response.ok) {
+
+      let errorMessage =
+        "Could not resume the research workflow.";
+
+
+      try {
+
+        const error =
+          await response.json();
+
+
+        errorMessage =
+          error.error ||
+          errorMessage;
+
+      } catch (_) {
+        // Ignore JSON parsing error
+      }
+
 
       throw new Error(
-        data.error ||
-        "Could not resume the research workflow."
+        errorMessage
       );
     }
 
 
-    completeProgress();
+    if (!response.body) {
+
+      throw new Error(
+        "The server did not return a streaming response."
+      );
+    }
 
 
-    setTimeout(
-      () => {
+    const reader =
+      response.body.getReader();
 
-        hideProgress();
 
-        displayResearchResult(
-          data
+    const decoder =
+      new TextDecoder();
+
+
+    let buffer = "";
+
+
+    while (true) {
+
+      const {
+        value,
+        done
+      } =
+        await reader.read();
+
+
+      if (done) {
+
+        console.log(
+          "🏁 Review SSE stream closed"
         );
 
-      },
-      800
+        break;
+      }
+
+
+      buffer +=
+        decoder.decode(
+          value,
+          {
+            stream: true
+          }
+        );
+
+
+      const events =
+        buffer.split("\n\n");
+
+
+      buffer =
+        events.pop();
+
+
+      for (
+        const rawEvent of events
+      ) {
+
+        if (
+          !rawEvent.startsWith("data:")
+        ) {
+          continue;
+        }
+
+
+        const jsonText =
+          rawEvent
+            .replace(
+              /^data:\s*/,
+              ""
+            )
+            .trim();
+
+
+        if (!jsonText) {
+          continue;
+        }
+
+
+        try {
+
+          const event =
+            JSON.parse(
+              jsonText
+            );
+
+
+          console.log(
+            "📡 Review SSE event:",
+            event
+          );
+
+
+          handleStreamEvent(
+            event
+          );
+
+        } catch (parseError) {
+
+          console.error(
+            "❌ Failed to parse review SSE event:",
+            jsonText,
+            parseError
+          );
+        }
+      }
+    }
+
+
+    console.log(
+      "✅ Review stream finished"
     );
 
-
-    setStatus(
-      data.requires_human_review
-        ? "Review Required"
-        : "Completed",
-
-      data.requires_human_review
-        ? "warning"
-        : "success"
-    );
 
   } catch (error) {
+
+    console.error(
+      "❌ Review error:",
+      error
+    );
+
 
     hideProgress();
 
@@ -1627,91 +2152,42 @@ async function submitReview(
       error.message
     );
 
-  } finally {
 
-    disableReviewButtons(
-      false
-    );
-  }
-}
-*/
-async function submitReview(decision) {
-  hideError();
+    // The request failed, so allow the
+    // user to retry the current review.
+    isSubmittingReview = false;
+    waitingForReview = true;
 
-  if (!currentThreadId) {
-    showError("No active research thread found.");
-    return;
-  }
+    allowHumanReviewDisplay = true;
 
-  const feedbackInput = document.getElementById("feedbackInput");
-  const feedback = feedbackInput.value.trim();
 
-  if (decision === "reject" && !feedback) {
-    showError("Please provide feedback before rejecting.");
-    feedbackInput.focus();
-    return;
-  }
+    showHumanReview({
 
-  setStatus("Processing review...", "loading");
-  hideHumanReview();
-  disableReviewButtons(true);
+      thread_id:
+        currentThreadId,
 
-  try {
-    const response = await fetch("/api/research/review", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        thread_id: currentThreadId,
-        decision: decision,
-        feedback: feedback
-      })
+      human_review_message:
+        "The review request failed. Please try again."
+
     });
 
-    if (!response.ok) {
-      throw new Error("Could not resume the research workflow.");
-    }
-
-    // Read SSE events here
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-
-    let buffer = "";
-
-    while (true) {
-      const { value, done } = await reader.read();
-
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-
-      const events = buffer.split("\n\n");
-      buffer = events.pop();
-
-      for (const rawEvent of events) {
-        if (!rawEvent.startsWith("data: ")) {
-          continue;
-        }
-
-        const event = JSON.parse(
-          rawEvent.substring(6)
-        );
-
-        handleStreamEvent(event);
-      }
-    }
-
-  } catch (error) {
-    hideProgress();
-
-    setStatus("Error", "error");
-    showError(error.message);
 
   } finally {
-    disableReviewButtons(false);
+
+    setLoading(false);
+
+
+    // IMPORTANT:
+    //
+    // Never enable review buttons here.
+    //
+    // If the backend requests another HITL,
+    // showHumanReview() enables them.
+    //
+    // If the workflow completes, they remain disabled.
   }
 }
+
 
 // ==========================================
 // REVIEW BUTTONS
@@ -1733,24 +2209,700 @@ function disableReviewButtons(
 
 
   buttons.forEach(
-    (
-      buttonId
-    ) => {
+    buttonId => {
 
       const button =
         document.getElementById(
           buttonId
         );
 
-      if (
-        button
-      ) {
+
+      if (button) {
 
         button.disabled =
           disabled;
       }
-
     }
+  );
+}
+
+
+// ==========================================
+// HANDLE ALL SSE EVENTS
+// ==========================================
+
+function handleStreamEvent(event) {
+
+  console.log(
+    "📥 HANDLE EVENT:",
+    event.type,
+    "| agent:",
+    event.agent,
+    "| thread:",
+    event.thread_id
+  );
+
+
+  // ==========================================
+  // THREAD ID
+  // ==========================================
+
+  if (event.thread_id) {
+
+    currentThreadId =
+      event.thread_id;
+
+
+    localStorage.setItem(
+      "research_thread_id",
+      currentThreadId
+    );
+
+
+    console.log(
+      "🧵 Active research thread:",
+      currentThreadId
+    );
+  }
+
+
+  // ==========================================
+  // AGENT STARTED
+  // ==========================================
+
+  if (
+    event.type === "agent_started"
+  ) {
+
+    showRunningAgent(
+      event.agent
+    );
+
+    return;
+  }
+
+
+  // ==========================================
+  // AGENT UPDATE
+  // ==========================================
+
+  if (
+    event.type === "agent_update"
+  ) {
+
+    handleAgentUpdate(
+      event
+    );
+
+    return;
+  }
+
+
+  // ==========================================
+  // HUMAN REVIEW REQUIRED
+  // ==========================================
+
+  if (
+    event.type === "human_review_required"
+  ) {
+
+    console.log(
+      "⏸️ NEW HUMAN REVIEW REQUIRED"
+    );
+
+
+    // ==========================================
+    // THIS IS THE ONLY NORMAL EVENT THAT
+    // ENABLES HUMAN REVIEW DISPLAY.
+    // ==========================================
+
+    allowHumanReviewDisplay = true;
+
+
+    stopProgressAnimation();
+
+
+    showHumanReview({
+
+      human_review_message:
+        event.human_review_message ||
+        "Please review the research results.",
+
+      human_review_items:
+        event.human_review_items || [],
+
+      thread_id:
+        event.thread_id
+
+    });
+
+
+    setStatus(
+      "Waiting for human review",
+      "warning"
+    );
+
+
+    return;
+  }
+
+
+  // ==========================================
+  // COMPLETE
+  // ==========================================
+
+  if (
+    event.type === "complete"
+  ) {
+
+    const data =
+      event.data || {};
+
+
+    console.log(
+      "🏁 WORKFLOW COMPLETE:",
+      data
+    );
+
+
+    // ==========================================
+    // SAVE THREAD
+    // ==========================================
+
+    if (data.thread_id) {
+
+      currentThreadId =
+        data.thread_id;
+
+
+      localStorage.setItem(
+        "research_thread_id",
+        currentThreadId
+      );
+
+
+      console.log(
+        "🧵 Completed thread:",
+        currentThreadId
+      );
+    }
+
+
+    // ==========================================
+    // ANOTHER HITL REQUIRED
+    // ==========================================
+
+    if (
+      data.requires_human_review
+    ) {
+
+      console.log(
+        "⏸️ Complete event says another review is required"
+      );
+
+
+      allowHumanReviewDisplay = true;
+
+      waitingForReview = true;
+      isSubmittingReview = false;
+
+
+      setStatus(
+        "Waiting for human review",
+        "warning"
+      );
+
+
+      showHumanReview(
+        data
+      );
+
+
+      return;
+    }
+
+
+    // ==========================================
+    // ACTUAL WORKFLOW COMPLETION
+    // ==========================================
+
+    console.log(
+      "✅ Research workflow completely finished"
+    );
+
+
+    waitingForReview = false;
+    isSubmittingReview = false;
+
+    allowHumanReviewDisplay = false;
+
+
+    // Review buttons stay disabled
+    disableReviewButtons(true);
+
+
+    completeProgress();
+
+
+    setTimeout(
+      () => {
+
+        hideProgress();
+
+        // Hide all intermediate results
+        // before displaying the final report.
+        showOnlyFinalReport();
+
+
+        showFinalReport(
+          data
+        );
+
+
+        setStatus(
+          "Completed",
+          "success"
+        );
+
+
+        console.log(
+          "📄 Final report displayed"
+        );
+
+      },
+      500
+    );
+
+
+    return;
+  }
+
+
+  // ==========================================
+  // ERROR
+  // ==========================================
+
+  if (
+    event.type === "error"
+  ) {
+
+    setStatus(
+      "Error",
+      "error"
+    );
+
+
+    showError(
+      event.error ||
+      "An unexpected error occurred."
+    );
+
+
+    return;
+  }
+}
+
+
+// ==========================================
+// HANDLE AGENT UPDATE
+// ==========================================
+
+function handleAgentUpdate(event) {
+
+  if (
+    event.type !== "agent_update"
+  ) {
+    return;
+  }
+
+
+  const agent =
+    event.agent;
+
+
+  const update =
+    event.update || {};
+
+
+  switch (agent) {
+
+
+    // ========================================
+    // INPUT GUARDRAIL
+    // ========================================
+
+    case "input_guardrail":
+
+      updateProgressStep(
+        "progress-guardrail"
+      );
+
+
+      showGuardrail({
+
+        guardrail_allowed:
+          update.input_guardrail_allowed,
+
+        guardrail_reason:
+          update.input_guardrail_reason
+
+      });
+
+
+      break;
+
+
+    // ========================================
+    // RESEARCH AGENT
+    // ========================================
+
+    case "research_agent":
+
+      updateProgressStep(
+        "progress-research"
+      );
+
+
+      if (
+        update.research_findings
+      ) {
+
+        console.log(
+          "🔬 New Research Findings received"
+        );
+
+
+        showFindings(
+          update.research_findings
+        );
+      }
+
+
+      break;
+
+
+    // ========================================
+    // RISK AGENT
+    // ========================================
+
+    case "risk_agent":
+
+      updateProgressStep(
+        "progress-risk"
+      );
+
+
+      if (
+        update.risks
+      ) {
+
+        console.log(
+          "⚠️ New Risk results received"
+        );
+
+
+        showRisks(
+          update.risks
+        );
+      }
+
+
+      break;
+
+
+    // ========================================
+    // FACT CHECKER
+    // ========================================
+
+    case "fact_checker_agent":
+
+      updateProgressStep(
+        "progress-fact"
+      );
+
+
+      if (
+        update.verifications
+      ) {
+
+        console.log(
+          "🔎 New Fact Check results received"
+        );
+
+
+        showVerifications(
+          update.verifications
+        );
+      }
+
+
+      break;
+
+
+    // ========================================
+    // REPORT GENERATOR
+    // ========================================
+
+    case "report_generator":
+
+      updateProgressStep(
+        "progress-report"
+      );
+
+
+      console.log(
+        "📄 Report Generator finished/updated"
+      );
+
+
+      break;
+
+
+    // ========================================
+    // HUMAN REVIEW
+    // ========================================
+
+    case "human_review":
+
+      /*
+       * VERY IMPORTANT:
+       *
+       * Do NOT call showHumanReview() here.
+       *
+       * The human_review agent can start or
+       * produce an update without the workflow
+       * necessarily being ready for user input.
+       *
+       * The backend's explicit:
+       *
+       *     human_review_required
+       *
+       * event is what opens the HITL panel.
+       */
+
+      console.log(
+        "ℹ️ Human Review agent update received — HITL UI remains hidden until human_review_required."
+      );
+
+
+      setStatus(
+        "Preparing human review...",
+        "loading"
+      );
+
+
+      break;
+  }
+}
+
+
+// ==========================================
+// PROGRESS STEP
+// ==========================================
+
+function updateProgressStep(
+  activeStepId
+) {
+
+  const activeIndex =
+    PROGRESS_STEPS.indexOf(
+      activeStepId
+    );
+
+
+  if (
+    activeIndex === -1
+  ) {
+
+    return;
+  }
+
+
+  PROGRESS_STEPS.forEach(
+    (
+      stepId,
+      index
+    ) => {
+
+      const step =
+        document.getElementById(
+          stepId
+        );
+
+
+      if (!step) {
+        return;
+      }
+
+
+      step.classList.remove(
+        "active"
+      );
+
+
+      if (
+        index < activeIndex
+      ) {
+
+        step.classList.add(
+          "completed"
+        );
+
+      } else {
+
+        step.classList.remove(
+          "completed"
+        );
+      }
+    }
+  );
+
+
+  const activeStep =
+    document.getElementById(
+      activeStepId
+    );
+
+
+  if (activeStep) {
+
+    activeStep.classList.add(
+      "active"
+    );
+  }
+}
+
+
+// ==========================================
+// START AGENT PROGRESS
+// ==========================================
+
+function startAgentProgress() {
+
+  stopProgressAnimation();
+
+  resetProgress();
+
+
+  const runningSection =
+    document.getElementById(
+      "runningSection"
+    );
+
+
+  if (runningSection) {
+
+    runningSection.classList.remove(
+      "hidden"
+    );
+  }
+
+
+  setStatus(
+    "Starting research...",
+    "loading"
+  );
+}
+
+
+// ==========================================
+// SHOW RUNNING AGENT
+// ==========================================
+
+function showRunningAgent(
+  agent
+) {
+
+  const agentNames = {
+
+    input_guardrail:
+      "Input Guardrail",
+
+    supervisor:
+      "Supervisor",
+
+    research_agent:
+      "Research Agent",
+
+    risk_agent:
+      "Risk Agent",
+
+    fact_checker_agent:
+      "Fact Checker",
+
+    human_review:
+      "Human Review",
+
+    report_generator:
+      "Report Generator"
+
+  };
+
+
+  const progressSteps = {
+
+    input_guardrail:
+      "progress-guardrail",
+
+    research_agent:
+      "progress-research",
+
+    risk_agent:
+      "progress-risk",
+
+    fact_checker_agent:
+      "progress-fact",
+
+    report_generator:
+      "progress-report"
+
+  };
+
+
+  const name =
+    agentNames[agent] || agent;
+
+
+  // ==========================================
+  // STATUS
+  // ==========================================
+
+  if (
+    agent === "human_review"
+  ) {
+
+    setStatus(
+      "Preparing human review...",
+      "loading"
+    );
+
+  } else {
+
+    setStatus(
+      `Running: ${name}`,
+      "loading"
+    );
+  }
+
+
+  // ==========================================
+  // PROGRESS
+  // ==========================================
+
+  const stepId =
+    progressSteps[agent];
+
+
+  if (stepId) {
+
+    updateProgressStep(
+      stepId
+    );
+  }
+
+
+  console.log(
+    `▶️ Agent started: ${name}`
   );
 }
 
@@ -1767,22 +2919,22 @@ function copyReport() {
     );
 
 
+  if (!report) {
+    return;
+  }
+
+
   const text =
     report.innerText;
 
 
-  if (
-    !text
-  ) {
-
+  if (!text) {
     return;
   }
 
 
   navigator.clipboard
-    .writeText(
-      text
-    )
+    .writeText(text)
 
     .then(
       () => {
@@ -1791,6 +2943,11 @@ function copyReport() {
           document.querySelector(
             ".copy-btn"
           );
+
+
+        if (!button) {
+          return;
+        }
 
 
         const oldText =
@@ -1884,421 +3041,52 @@ document.addEventListener(
     ) {
 
       startResearch();
-
     }
 
   }
 );
 
-// frontend update after every agent finishes
-function handleStreamEvent(event) {
 
-  // ==========================================
-  // AGENT STARTED
-  // ==========================================
+// ==========================================
+// THREAD MANAGEMENT
+// ==========================================
 
-  if (event.type === "agent_started") {
+function clearCurrentThread() {
 
-    showRunningAgent(
-      event.agent
-    );
+  currentThreadId = null;
 
-    return;
-  }
 
-
-  // ==========================================
-  // AGENT FINISHED
-  // ==========================================
-
-  if (event.type === "agent_update") {
-
-    handleAgentUpdate(
-      event
-    );
-
-    return;
-  }
-
-
-  // ==========================================
-  // HUMAN REVIEW REQUIRED
-  // ==========================================
-
-  if (event.type === "human_review_required") {
-
-    // The workflow is paused.
-    waitingForReview = true;
-
-    stopProgressAnimation();
-
-    setStatus(
-      "Waiting for human review",
-      "warning"
-    );
-
-    showHumanReview({
-      human_review_message:
-        event.message ||
-        "Please review the research results.",
-
-      human_review_items:
-        event.items || [],
-
-      thread_id:
-        event.thread_id
-    });
-
-    return;
-  }
-
-
-  // ==========================================
-  // COMPLETE
-  // ==========================================
-
-  if (event.type === "complete") {
-
-    // If we're waiting for HITL, DO NOT
-    // display the final report.
-    if (waitingForReview) {
-
-      console.log(
-        "⏸ Workflow paused for human review."
-      );
-
-      return;
-    }
-
-    completeProgress();
-
-    setTimeout(
-      () => {
-
-        hideProgress();
-
-        displayResearchResult(
-          event.data
-        );
-
-      },
-      500
-    );
-
-    setStatus(
-      event.data.requires_human_review
-        ? "Review Required"
-        : "Completed",
-
-      event.data.requires_human_review
-        ? "warning"
-        : "success"
-    );
-
-    return;
-  }
-
-
-  // ==========================================
-  // ERROR
-  // ==========================================
-
-  if (event.type === "error") {
-
-    setStatus(
-      "Error",
-      "error"
-    );
-
-    showError(
-      event.error ||
-      "An unexpected error occurred."
-    );
-
-    return;
-  }
-}
-
-
-
-// detects which agent just finished
-function handleAgentUpdate(event) {
-
-  if (
-    event.type !== "agent_update"
-  ) {
-    return;
-  }
-
-  const agent = event.agent;
-  const update = event.update || {};
-
-
-  switch (agent) {
-
-    case "input_guardrail":
-
-      updateProgressStep(
-        "progress-guardrail"
-      );
-
-      showGuardrail({
-        guardrail_allowed:
-          update.input_guardrail_allowed,
-
-        guardrail_reason:
-          update.input_guardrail_reason
-      });
-
-      break;
-
-
-    case "research_agent":
-
-      updateProgressStep(
-        "progress-research"
-      );
-
-      if (
-        update.research_findings
-      ) {
-
-        showFindings(
-          update.research_findings
-        );
-      }
-
-      break;
-
-
-    case "risk_agent":
-
-      updateProgressStep(
-        "progress-risk"
-      );
-
-      if (
-        update.risks
-      ) {
-
-        showRisks(
-          update.risks
-        );
-      }
-
-      break;
-
-
-    case "fact_checker_agent":
-
-      updateProgressStep(
-        "progress-fact"
-      );
-
-      if (
-        update.verifications
-      ) {
-
-        showVerifications(
-          update.verifications
-        );
-      }
-
-      break;
-
-
-    case "report_generator":
-      updateProgressStep("progress-report");
-      break;
-
-
-    case "human_review":
-
-      setStatus(
-        "Waiting for human review",
-        "warning"
-      );
-
-      showHumanReview({
-        human_review_message:
-          event.message ||
-          "Please review the research results.",
-
-        human_review_items:
-          event.items || [],
-
-        thread_id:
-          event.thread_id
-      });
-
-      break;
-  }
-}
-
-// progress animation
-function updateProgressStep(
-  activeStepId
-) {
-
-  const activeIndex =
-    PROGRESS_STEPS.indexOf(
-      activeStepId
-    );
-
-
-  if (
-    activeIndex === -1
-  ) {
-
-    return;
-  }
-
-
-  PROGRESS_STEPS.forEach(
-    (
-      stepId,
-      index
-    ) => {
-
-      const step =
-        document.getElementById(
-          stepId
-        );
-
-
-      step.classList.remove(
-        "active"
-      );
-
-
-      if (
-        index < activeIndex
-      ) {
-
-        step.classList.add(
-          "completed"
-        );
-
-      } else {
-
-        step.classList.remove(
-          "completed"
-        );
-      }
-    }
+  localStorage.removeItem(
+    "research_thread_id"
   );
-
-
-  const activeStep =
-    document.getElementById(
-      activeStepId
-    );
-
-
-  activeStep.classList.add(
-    "active"
-  );
-}
-
-// show which agent is running
-function startAgentProgress() {
-  stopProgressAnimation();
-  resetProgress();
-
-  const runningSection =
-    document.getElementById("runningSection");
-
-  runningSection.classList.remove("hidden");
-
-  setStatus("Starting research...", "loading");
-}
-
-function showRunningAgent(agent) {
-
-  const agentNames = {
-
-    input_guardrail:
-      "Input Guardrail",
-
-    supervisor:
-      "Supervisor",
-
-    research_agent:
-      "Research Agent",
-
-    risk_agent:
-      "Risk Agent",
-
-    fact_checker_agent:
-      "Fact Checker",
-
-    human_review:
-      "Human Review",
-
-    report_generator:
-      "Report Generator"
-  };
-
-
-  const progressSteps = {
-
-    input_guardrail:
-      "progress-guardrail",
-
-    research_agent:
-      "progress-research",
-
-    risk_agent:
-      "progress-risk",
-
-    fact_checker_agent:
-      "progress-fact",
-
-    report_generator:
-      "progress-report"
-  };
-
-
-  const name =
-    agentNames[agent] || agent;
-
-
-  // ------------------------------------------
-  // STATUS
-  // ------------------------------------------
-
-  if (agent === "human_review") {
-
-    setStatus(
-      "Waiting for human review",
-      "warning"
-    );
-
-  } else {
-
-    setStatus(
-      `Running: ${name}`,
-      "loading"
-    );
-  }
-
-
-  // ------------------------------------------
-  // PROGRESS
-  // ------------------------------------------
-
-  const stepId =
-    progressSteps[agent];
-
-  if (stepId) {
-
-    updateProgressStep(
-      stepId
-    );
-  }
 
 
   console.log(
-    `▶️ Agent started: ${name}`
+    "🗑️ Current research thread cleared"
+  );
+}
+
+function showOnlyFinalReport() {
+
+  const sectionsToHide = [
+    "guardrailSection",
+    "findingsSection",
+    "risksSection",
+    "factCheckSection",
+    "humanReviewSection"
+  ];
+
+  sectionsToHide.forEach(sectionId => {
+
+    const section =
+      document.getElementById(sectionId);
+
+    if (section) {
+      section.classList.add("hidden");
+    }
+  });
+
+  console.log(
+    "🙈 Intermediate results hidden — showing final report only"
   );
 }

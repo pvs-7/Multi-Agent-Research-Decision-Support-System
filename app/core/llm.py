@@ -5,9 +5,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 import os
 
 load_dotenv()
-"""
+
 llm = ChatGroq(
    model="openai/gpt-oss-120b",
+   groq_api_key=os.getenv("GROQ_API_KEY"),
    temperature = 0,
 )
 """
@@ -17,7 +18,7 @@ llm = ChatGoogleGenerativeAI(
     google_api_key=os.getenv("GOOGLE_API_KEY"),
     temperature=0,
 )
-
+"""
 llm2 = ChatOllama(
     model="ministral-3:3b",
     base_url="http://localhost:11434",

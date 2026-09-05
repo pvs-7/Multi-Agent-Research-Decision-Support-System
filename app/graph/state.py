@@ -38,7 +38,7 @@ class AgentState(TypedDict):
     verifications: list[Verification]
 
     research_sources: list[dict]
-    research_queries: Annotated[list[str], add]
+    research_queries: list[str]
     research_passes: int
     research_exhausted: bool
 
