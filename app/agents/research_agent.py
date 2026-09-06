@@ -89,6 +89,36 @@ Do NOT repeat previous searches.
 Prioritize explicit research requests from the Fact Checker.
 
 ============================================================
+HUMAN FEEDBACK
+============================================================
+
+The user may provide feedback after reviewing the research
+and analysis.
+
+human_feedback contains direct instructions from the human
+reviewer.
+
+When human_feedback is not empty:
+
+- Treat it as a high-priority research objective.
+- Identify the specific evidence, questions, or concerns
+  mentioned in the feedback.
+- Perform targeted searches to address those concerns.
+- Do not ignore the human feedback.
+- Do not simply repeat the feedback as a search query.
+- Convert the feedback into precise evidence requirements
+  and search queries.
+- Avoid repeating research that has already been completed.
+- Preserve useful existing findings.
+
+Human feedback should guide the follow-up research, but do
+not invent information simply to satisfy the requested
+conclusion.
+
+If the human feedback conflicts with available evidence,
+prioritize reliable evidence.
+
+============================================================
 FACT CHECKER RESEARCH REQUESTS
 ============================================================
 
@@ -153,11 +183,12 @@ missing_information = []
 
 During follow-up research prioritize:
 
-1. research_requests from the Fact Checker
-2. missing_information
-3. weakly supported dimensions
-4. risks identified by the Risk Agent
-5. important dimensions without evidence
+1. human_feedback from the human reviewer
+2. research_requests from the Fact Checker
+3. missing_information
+4. weakly supported dimensions
+5. risks identified by the Risk Agent
+6. important dimensions without evidence
 """
 
 
@@ -265,6 +296,7 @@ async def research_agent(state: AgentState):
     planning_context = {
         "user_query": state["user_query"],
         "research_pass": research_passes,
+        "human_feedback": state.get("human_feedback", ""),
         "existing_findings": compact_findings(
         state.get("research_findings", []),
         6
@@ -277,7 +309,7 @@ async def research_agent(state: AgentState):
 
     messages = [
         SystemMessage(content=research_prompt),
-        HumanMessage(content=json.dumps(planning_context))
+        HumanMessage(content=json.dumps(planning_context, indent=2))
     ]
 
     print("\n📤 Asking research LLM what to do...")
@@ -485,6 +517,7 @@ Do not return JSON as strings.
         "missing_information": research_output.missing_information,
         "research_passes": research_passes,
         #"research_requests" : research_output.missing_information,
+        "human_feedback": "",
         "completed_agents": ["research_agent"],
         "workflow_steps": workflow_steps,
         "messages": [
