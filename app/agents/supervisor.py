@@ -74,11 +74,43 @@ async def supervisor_agent(state: AgentState):
 
         print("\n🔄 Human requested more research.")
 
+        if research_passes < MAX_RESEARCH_PASSES:
+
+            print(
+                f"➡️ Running additional research pass "
+                f"{research_passes + 1}/{MAX_RESEARCH_PASSES}."
+            )
+
+            return {
+                "next_agent": "research_agent",
+                "workflow_steps": workflow_steps,
+                "requires_human_review": False,
+                "human_decision": None,
+                "ui_status": {
+                    "type": "research_requested",
+                    "message": (
+                        f"Running additional research pass "
+                        f"{research_passes + 1}/{MAX_RESEARCH_PASSES}."
+                    ),
+                },
+            }
+
+        print("\n🛑 Maximum research passes reached.")
+        print("➡️ Proceeding directly to final report.")
+
         return {
-            "next_agent": "research_agent",
+            "next_agent": "report_generator",
             "workflow_steps": workflow_steps,
             "requires_human_review": False,
             "human_decision": None,
+            "research_exhausted": True,
+            "ui_status": {
+                "type": "research_limit_reached",
+                "message": (
+                    "Maximum research passes reached. "
+                    "Proceeding to final report."
+                ),
+            },
         }
 
     if human_decision == "reject":
@@ -125,6 +157,13 @@ async def supervisor_agent(state: AgentState):
                 "next_agent": "fact_checker_agent",
                 "workflow_steps": workflow_steps,
                 "requires_human_review": False,
+                "ui_status": {
+                    "type": "workflow_limit_reached",
+                    "message": (
+                        "Workflow limit reached. "
+                        "Running a final fact-check before completing the report."
+                    ),
+                },
             }
 
         # ----------------------------------------------------
@@ -137,7 +176,14 @@ async def supervisor_agent(state: AgentState):
         return {
             "next_agent": "report_generator",
             "workflow_steps": workflow_steps,
-            "requires_human_review": True,
+            "requires_human_review": False,
+            "ui_status": {
+                "type": "workflow_limit_reached",
+                "message": (
+                    "Maximum workflow steps reached. "
+                    "Proceeding to the final report."
+                ),
+            },
         }
 
     # ========================================================
@@ -170,6 +216,13 @@ async def supervisor_agent(state: AgentState):
             "next_agent": "risk_agent",
             "workflow_steps": workflow_steps,
             "research_exhausted": True,
+            "ui_status": {
+                "type": "research_limit_reached",
+                "message": (
+                    "Maximum research passes reached. "
+                    "Proceeding with the available evidence."
+                ),
+            },
         }
 
     # ========================================================

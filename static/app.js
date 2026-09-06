@@ -1941,6 +1941,10 @@ async function submitReview(
 
     hideResultsAfterResearchFindings();
 
+    setStatus(
+      "Checking whether another research pass is available...",
+      "loading"
+    );
 
     console.log(
       "🔄 Requesting more research for thread:",
@@ -2342,6 +2346,20 @@ function handleStreamEvent(event) {
       "warning"
     );
 
+
+    return;
+  }
+
+
+  // ==========================================
+  // WORKFLOW STATUS
+  // ==========================================
+
+  if (
+    event.type === "workflow_status"
+  ) {
+
+    handleWorkflowStatus(event);
 
     return;
   }
@@ -3089,4 +3107,93 @@ function showOnlyFinalReport() {
   console.log(
     "🙈 Intermediate results hidden — showing final report only"
   );
+}
+
+
+function handleWorkflowStatus(event) {
+
+  const status =
+    event.status || {};
+
+  const statusType =
+    status.type || "";
+
+  const message =
+    status.message || "";
+
+
+  console.log(
+    "📢 WORKFLOW STATUS:",
+    statusType,
+    message
+  );
+
+
+  // ==========================================
+  // RESEARCH REQUESTED
+  // ==========================================
+
+  if (
+    statusType === "research_requested"
+  ) {
+
+    setStatus(
+      message ||
+      "Running additional research...",
+      "loading"
+    );
+
+    updateProgressStep(
+      "progress-research"
+    );
+
+    return;
+  }
+
+
+  // ==========================================
+  // MAX RESEARCH PASSES
+  // ==========================================
+
+  if (
+    statusType === "research_limit_reached"
+  ) {
+
+    setStatus(
+      message ||
+      "Maximum research passes reached. Proceeding to final report.",
+      "warning"
+    );
+
+    updateProgressStep(
+      "progress-report"
+    );
+
+    console.log(
+      "🛑 Research limit reached — report generation will continue."
+    );
+
+    return;
+  }
+
+  // ==========================================
+  // WORKFLOW LIMIT
+  // ==========================================
+
+  if (
+    statusType === "workflow_limit_reached"
+  ) {
+
+    setStatus(
+      message ||
+      "Maximum workflow steps reached. Proceeding to completion.",
+      "warning"
+    );
+
+    console.log(
+      "🛑 Workflow limit reached."
+    );
+
+    return;
+  }
 }

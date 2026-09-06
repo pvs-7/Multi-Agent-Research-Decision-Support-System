@@ -159,7 +159,13 @@ def _serialize_result(result: dict[str, Any], thread_id: str,) -> dict[str, Any]
         "workflow_steps": result.get("workflow_steps",0,),
         "research_passes": result.get("research_passes",0,),
         "completed_agents": result.get("completed_agents", [],),
-
+        "research_exhausted": result.get(
+            "research_exhausted",
+            False,
+        ),
+        "ui_status": result.get(
+            "ui_status"
+        ),
 
         # ============================
         # FINAL
@@ -500,6 +506,26 @@ async def resume_research_agent(
                 f"{json.dumps(payload)}"
                 f"\n\n"
             )
+
+            # ==========================================
+            # WORKFLOW STATUS
+            # ==========================================
+
+            if isinstance(output, dict):
+
+                ui_status = output.get("ui_status")
+                if ui_status:
+                    status_payload = {
+                        "type": "workflow_status",
+                        "thread_id": thread_id,
+                        "status": ui_status,
+                    }
+
+                    yield (
+                        f"data: "
+                        f"{json.dumps(status_payload)}"
+                        f"\n\n"
+                    )
 
     # =========================================================
     # CHECK WHETHER GRAPH PAUSED AGAIN
@@ -883,6 +909,28 @@ async def stream_research_agent(
                 f"{json.dumps(payload)}"
                 f"\n\n"
             )
+
+            # =====================================================
+            # WORKFLOW STATUS
+            # =====================================================
+
+            if isinstance(output, dict):
+
+                ui_status = output.get("ui_status")
+
+                if ui_status:
+
+                    status_payload = {
+                        "type": "workflow_status",
+                        "thread_id": thread_id,
+                        "status": ui_status,
+                    }
+
+                    yield (
+                        f"data: "
+                        f"{json.dumps(status_payload)}"
+                        f"\n\n"
+                    )
 
     # =========================================================
     # THE GRAPH HAS STOPPED / PAUSED

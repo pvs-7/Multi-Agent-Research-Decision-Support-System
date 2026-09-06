@@ -64,5 +64,7 @@ class AgentState(TypedDict):
     human_decision: str | None
     human_feedback: str | None
 
+    ui_status: dict | None
+
     confidence_score: float | None
     final_report: str | None
