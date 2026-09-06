@@ -1,18 +1,64 @@
 from pathlib import Path
-import traceback
 import json
+import logging
 
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
+from fastapi.responses import (
+    HTMLResponse,
+    JSONResponse,
+    StreamingResponse,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from backend import run_research_agent, resume_research_agent, stream_research_agent
+from backend import (
+    resume_research_agent,
+    run_research_agent,
+    stream_research_agent,
+)
 
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
 BASE_DIR = Path(__file__).resolve().parent
+
+STATIC_DIR = BASE_DIR / "static"
+TEMPLATES_DIR = BASE_DIR / "templates"
+
+HOST = "127.0.0.1"
+PORT = 8000
+
+SSE_MEDIA_TYPE = "text/event-stream"
+
+SSE_HEADERS = {
+    "Cache-Control": "no-cache",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+VALID_REVIEW_DECISIONS = frozenset(
+    {
+        "approve",
+        "reject",
+        "request_more_research",
+    }
+)
+
+
+# ============================================================================
+# LOGGING
+# ============================================================================
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# APPLICATION
+# ============================================================================
 
 app = FastAPI(
     title="Research Decision Support System",
@@ -24,41 +70,171 @@ app = FastAPI(
 )
 
 
-# ==========================================
-# STATIC FILES
-# ==========================================
+# ============================================================================
+# STATIC FILES / TEMPLATES
+# ============================================================================
 
 app.mount(
     "/static",
-    StaticFiles(directory=str(BASE_DIR / "static")),
+    StaticFiles(directory=str(STATIC_DIR)),
     name="static",
 )
 
 templates = Jinja2Templates(
-    directory=str(BASE_DIR / "templates")
+    directory=str(TEMPLATES_DIR),
 )
 
 
-# ==========================================
+# ============================================================================
 # REQUEST MODELS
-# ==========================================
+# ============================================================================
 
 class ResearchRequest(BaseModel):
-    message: str
-    thread_id: str | None = None
+    message: str = Field(
+        min_length=1,
+        description="Research question",
+    )
+
+    thread_id: str | None = Field(
+        default=None,
+        min_length=1,
+        description="Existing research thread ID",
+    )
+
+    @field_validator("message")
+    @classmethod
+    def validate_message(cls, value: str) -> str:
+        value = value.strip()
+
+        if not value:
+            raise ValueError(
+                "Research query cannot be empty."
+            )
+
+        return value
 
 
 class HumanReviewRequest(BaseModel):
-    thread_id: str = Field(min_length=1)
-    decision: str
-    feedback: str = ""
+    thread_id: str = Field(
+        min_length=1,
+        description="Research thread ID",
+    )
+
+    decision: str = Field(
+        min_length=1,
+        description="Human review decision",
+    )
+
+    feedback: str = Field(
+        default="",
+        description="Optional human feedback",
+    )
+
+    @field_validator("thread_id", "decision")
+    @classmethod
+    def strip_required_strings(cls, value: str) -> str:
+        value = value.strip()
+
+        if not value:
+            raise ValueError(
+                "Value cannot be empty."
+            )
+
+        return value
+
+    @field_validator("decision")
+    @classmethod
+    def normalize_decision(cls, value: str) -> str:
+        return value.strip().lower()
+
+    @field_validator("feedback")
+    @classmethod
+    def normalize_feedback(cls, value: str) -> str:
+        return value.strip()
 
 
-# ==========================================
+# ============================================================================
+# RESPONSE HELPERS
+# ============================================================================
+
+def json_response(
+    content: dict,
+    status_code: int = 200,
+) -> JSONResponse:
+    """Create a consistent JSON API response."""
+    return JSONResponse(
+        status_code=status_code,
+        content=content,
+    )
+
+
+def success_response(
+    data: dict,
+) -> JSONResponse:
+    """Create a successful API response."""
+    return json_response(
+        {
+            "success": True,
+            **data,
+        }
+    )
+
+
+def error_response(
+    message: str,
+    status_code: int = 500,
+) -> JSONResponse:
+    """Create a consistent API error response."""
+    return json_response(
+        {
+            "success": False,
+            "error": message,
+        },
+        status_code=status_code,
+    )
+
+
+def sse_event(
+    event_type: str,
+    **data,
+) -> str:
+    """
+    Build a Server-Sent Events message.
+
+    This is useful for API-level errors because the research service
+    already emits SSE events.
+    """
+    payload = {
+        "type": event_type,
+        **data,
+    }
+
+    return (
+        f"data: "
+        f"{json.dumps(payload)}"
+        f"\n\n"
+    )
+
+
+def streaming_response(
+    generator,
+) -> StreamingResponse:
+    """Create a standardized SSE response."""
+    return StreamingResponse(
+        generator,
+        media_type=SSE_MEDIA_TYPE,
+        headers=SSE_HEADERS,
+    )
+
+
+# ============================================================================
 # HOME PAGE
-# ==========================================
+# ============================================================================
 
-@app.get("/", response_class=HTMLResponse)
+@app.get(
+    "/",
+    response_class=HTMLResponse,
+)
 async def home(request: Request):
     return templates.TemplateResponse(
         request=request,
@@ -67,202 +243,136 @@ async def home(request: Request):
     )
 
 
-# ==========================================
-# START RESEARCH
-# ==========================================
+# ============================================================================
+# RESEARCH
+# ============================================================================
 
 @app.post("/api/research")
-async def research(request_data: ResearchRequest):
+async def research(
+    request_data: ResearchRequest,
+):
+    """
+    Run the research workflow and return the final result.
+
+    This endpoint is useful for clients that do not require
+    real-time workflow updates.
+    """
     try:
-        user_message = request_data.message.strip()
-
-        if not user_message:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "error": "Research query cannot be empty.",
-                },
-            )
-
         result = await run_research_agent(
-            user_input=user_message,
+            user_input=request_data.message,
             thread_id=request_data.thread_id,
         )
 
-        return JSONResponse(
-            content={
-                "success": True,
-                **result,
-            }
+        return success_response(result)
+
+    except ValueError as exc:
+        logger.warning(
+            "Research validation error: %s",
+            exc,
         )
 
-    except Exception as exc:
-        print("\n❌ RESEARCH ERROR:")
-        print(exc)
-        traceback.print_exc()
+        return error_response(
+            str(exc),
+            status_code=400,
+        )
 
-        return JSONResponse(
+    except Exception:
+        logger.exception(
+            "Research request failed."
+        )
+
+        return error_response(
+            "An unexpected error occurred while processing the research request.",
             status_code=500,
-            content={
-                "success": False,
-                "error": str(exc),
-            },
         )
+
+
+# ============================================================================
+# STREAMING RESEARCH
+# ============================================================================
 
 @app.post("/api/research/stream")
-async def research_stream(request_data: ResearchRequest):
-    user_message = (
-        request_data.message
-        .strip()
-    )
+async def research_stream(
+    request_data: ResearchRequest,
+):
+    """
+    Start a research workflow and stream workflow events using SSE.
+    """
 
-    if not user_message:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "success": False,
-                "error": (
-                    "Research query cannot "
-                    "be empty."
-                ),
-            },
-        )
+    async def event_stream():
+        try:
+            async for event in stream_research_agent(
+                user_input=request_data.message,
+                thread_id=request_data.thread_id,
+            ):
+                yield event
 
-    return StreamingResponse(
-        stream_research_agent(
-            user_input=user_message,
-            thread_id=(
-                request_data.thread_id
-            ),
-        ),
+        except Exception as exc:
+            logger.exception(
+                "Research stream failed."
+            )
 
-        media_type=(
-            "text/event-stream"
-        ),
+            yield sse_event(
+                "error",
+                error=str(exc),
+            )
 
-        headers={
-
-            "Cache-Control":
-                "no-cache",
-
-            "Connection":
-                "keep-alive",
-
-            "X-Accel-Buffering":
-                "no",
-        },
+    return streaming_response(
+        event_stream()
     )
 
 
-# ==========================================
+# ============================================================================
 # HUMAN REVIEW
-# ==========================================
-"""
+# ============================================================================
+
 @app.post("/api/research/review")
-async def review_research(request_data: HumanReviewRequest):
-    try:
-        decision = request_data.decision.strip().lower()
+async def review_research(
+    request_data: HumanReviewRequest,
+):
+    """
+    Resume a paused research workflow after human review.
 
-        valid_decisions = [
-            "approve",
-            "reject",
-            "request_more_research",
-        ]
+    The response remains an SSE stream because the workflow may execute
+    several additional agents after the review decision.
+    """
 
-        if decision not in valid_decisions:
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "error": (
-                        "Decision must be 'approve', 'reject', "
-                        "or 'request_more_research'."
-                    ),
-                },
-            )
+    decision = request_data.decision
 
-        if (
-            decision == "reject"
-            and not request_data.feedback.strip()
-        ):
-            return JSONResponse(
-                status_code=400,
-                content={
-                    "success": False,
-                    "error": (
-                        "Please provide feedback when rejecting."
-                    ),
-                },
-            )
+    # ------------------------------------------------------------------------
+    # VALIDATE DECISION
+    # ------------------------------------------------------------------------
 
-        result = await resume_research_agent(
-            thread_id=request_data.thread_id,
-            decision=decision,
-            feedback=request_data.feedback,
-        )
-
-        return JSONResponse(
-            content={
-                "success": True,
-                **result,
-            }
-        )
-
-    except Exception as exc:
-        print("\n❌ HUMAN REVIEW ERROR:")
-        print(exc)
-        traceback.print_exc()
-
-        return JSONResponse(
-            status_code=500,
-            content={
-                "success": False,
-                "error": str(exc),
-            },
-        )
-"""
-@app.post("/api/research/review")
-async def review_research(request_data: HumanReviewRequest):
-
-    decision = request_data.decision.strip().lower()
-
-    valid_decisions = [
-        "approve",
-        "reject",
-        "request_more_research",
-    ]
-
-    if decision not in valid_decisions:
-        return JSONResponse(
+    if decision not in VALID_REVIEW_DECISIONS:
+        return error_response(
+            (
+                "Decision must be one of: "
+                "'approve', "
+                "'reject', "
+                "'request_more_research'."
+            ),
             status_code=400,
-            content={
-                "success": False,
-                "error": (
-                    "Decision must be 'approve', 'reject', "
-                    "or 'request_more_research'."
-                ),
-            },
         )
+
+    # ------------------------------------------------------------------------
+    # REJECT REQUIRES FEEDBACK
+    # ------------------------------------------------------------------------
 
     if (
         decision == "reject"
-        and not request_data.feedback.strip()
+        and not request_data.feedback
     ):
-        return JSONResponse(
+        return error_response(
+            "Please provide feedback when rejecting.",
             status_code=400,
-            content={
-                "success": False,
-                "error": (
-                    "Please provide feedback when rejecting."
-                ),
-            },
         )
 
+    # ------------------------------------------------------------------------
+    # STREAM RESUMED WORKFLOW
+    # ------------------------------------------------------------------------
+
     async def event_stream():
-
         try:
-
             async for event in resume_research_agent(
                 thread_id=request_data.thread_id,
                 decision=decision,
@@ -271,36 +381,23 @@ async def review_research(request_data: HumanReviewRequest):
                 yield event
 
         except Exception as exc:
-
-            print("\n❌ HUMAN REVIEW ERROR:")
-            print(exc)
-            traceback.print_exc()
-
-            error_payload = {
-                "type": "error",
-                "error": str(exc),
-            }
-
-            yield (
-                f"data: "
-                f"{json.dumps(error_payload)}"
-                f"\n\n"
+            logger.exception(
+                "Human review stream failed."
             )
 
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
+            yield sse_event(
+                "error",
+                error=str(exc),
+            )
+
+    return streaming_response(
+        event_stream()
     )
 
 
-# ==========================================
+# ============================================================================
 # HEALTH CHECK
-# ==========================================
+# ============================================================================
 
 @app.get("/health")
 async def health_check():
@@ -321,23 +418,23 @@ async def health_check():
     }
 
 
-# ==========================================
+# ============================================================================
 # FAVICON
-# ==========================================
+# ============================================================================
 
 @app.get("/favicon.ico")
 async def favicon():
     return JSONResponse(content={})
 
 
-# ==========================================
-# RUN
-# ==========================================
+# ============================================================================
+# APPLICATION ENTRY POINT
+# ============================================================================
 
 if __name__ == "__main__":
     uvicorn.run(
         "main:app",
-        host="127.0.0.1",
-        port=8000,
+        host=HOST,
+        port=PORT,
         reload=True,
     )
